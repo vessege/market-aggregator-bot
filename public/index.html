@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#ffffff">
+  <title>Market Aggregator</title>
+  <link rel="stylesheet" href="assets/css/styles.css">
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- Header -->
+    <header class="header">
+      <button class="header-btn" id="menu-btn" aria-label="Menu">
+        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+      </button>
+      <label class="search-bar">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        <input type="search" id="search-input" placeholder="Mahsulotlarni toping" autocomplete="off">
+      </label>
+    </header>
+
+    <!-- Pages -->
+    <main id="page-home" class="page page--active">
+      <!-- Banner carousel -->
+      <section class="banners" id="banners">
+        <div class="banner banner--orange">
+          <div class="banner__title">100% jonli<br>narxlar</div>
+          <div class="banner__sub">O'zbek &amp; global do'konlar</div>
+        </div>
+        <div class="banner banner--purple">
+          <div class="banner__title">Eng yaxshi<br>takliflar</div>
+          <div class="banner__sub">Real vaqt narxlari</div>
+        </div>
+        <div class="banner banner--green">
+          <div class="banner__title">Sevimlilar<br>ro'yxati</div>
+          <div class="banner__sub">Yoqtirgan mahsulotlaringiz</div>
+        </div>
+      </section>
+
+      <!-- Categories chip list -->
+      <nav class="categories" id="categories"></nav>
+
+      <!-- Products grid -->
+      <section class="grid" id="products-grid"></section>
+      <div class="loader" id="loader" hidden>
+        <div class="spinner"></div>
+      </div>
+      <div class="empty-state" id="empty-state" hidden>
+        <div class="empty-state__icon">📦</div>
+        <p>Mahsulot topilmadi</p>
+      </div>
+    </main>
+
+    <main id="page-favorites" class="page">
+      <h1 class="page-title">Sevimlilar</h1>
+      <section class="grid" id="favorites-grid"></section>
+      <div class="empty-state" id="favorites-empty" hidden>
+        <div class="empty-state__icon">❤️</div>
+        <p>Sevimlilar ro'yxati bo'sh</p>
+      </div>
+    </main>
+
+    <main id="page-profile" class="page">
+      <h1 class="page-title">Profil</h1>
+      <div class="profile" id="profile-card">
+        <div class="profile__avatar" id="profile-avatar">?</div>
+        <div class="profile__info">
+          <div class="profile__name" id="profile-name">Mehmon</div>
+          <div class="profile__id" id="profile-id"></div>
+        </div>
+      </div>
+      <div class="profile-stats" id="profile-stats">
+        <div class="stat"><span class="stat__num" id="stat-favorites">0</span><span class="stat__label">Sevimlilar</span></div>
+        <div class="stat"><span class="stat__num" id="stat-sources">0</span><span class="stat__label">Marketlar</span></div>
+      </div>
+      <ul class="menu">
+        <li class="menu__item" data-action="about"><span>Bot haqida</span><span>›</span></li>
+        <li class="menu__item" data-action="contact"><span>Bog'lanish</span><span>›</span></li>
+      </ul>
+    </main>
+
+    <!-- Product detail modal -->
+    <div class="sheet" id="product-sheet" hidden>
+      <div class="sheet__overlay"></div>
+      <div class="sheet__content">
+        <button class="sheet__close" id="sheet-close" aria-label="Yopish">
+          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        </button>
+        <button class="sheet__fav" id="sheet-fav" aria-label="Sevimli">
+          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 1 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+        </button>
+        <div class="sheet__body">
+          <div class="sheet__gallery" id="sheet-gallery"></div>
+          <div class="sheet__title" id="sheet-title">—</div>
+          <div class="sheet__rating" id="sheet-rating"></div>
+          <div class="sheet__price-row">
+            <div class="sheet__price" id="sheet-price">—</div>
+            <div class="sheet__old-price" id="sheet-old-price"></div>
+            <div class="sheet__discount" id="sheet-discount"></div>
+          </div>
+          <div class="sheet__meta" id="sheet-meta"></div>
+          <div class="sheet__synced" id="sheet-synced"></div>
+          <div class="sheet__seller" id="sheet-seller"></div>
+          <div class="sheet__desc" id="sheet-desc"></div>
+        </div>
+        <div class="sheet__cta">
+          <button class="cta-btn" id="cta-buy">Marketda sotib olish</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Bottom nav -->
+    <nav class="bottom-nav">
+      <button class="nav-item is-active" data-page="home">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2h-4v-7h-6v7H5a2 2 0 0 1-2-2z"/></svg>
+        <span>Bosh</span>
+      </button>
+      <button class="nav-item" data-page="favorites">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 1 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
+        <span>Sevimli</span>
+      </button>
+      <button class="nav-item" data-page="profile">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+        <span>Profil</span>
+      </button>
+    </nav>
+  </div>
+
+  <script src="assets/js/app.js"></script>
+</body>
+</html>

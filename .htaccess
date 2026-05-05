@@ -1,0 +1,23 @@
+# Apache config — block access to internal directories and dotfiles.
+<IfModule mod_rewrite.c>
+    RewriteEngine On
+
+    # Block access to /storage, /db, /src, /config, /bin from the web
+    RewriteRule ^(storage|db|src|config|bin|tests)/?(.*)$ - [F,L]
+
+    # Block dotfiles (.env, .git, etc)
+    RewriteCond %{REQUEST_URI} (^|/)\.
+    RewriteRule . - [F,L]
+</IfModule>
+
+# Sensible defaults
+<IfModule mod_headers.c>
+    Header set X-Content-Type-Options "nosniff"
+    Header set Referrer-Policy "strict-origin-when-cross-origin"
+</IfModule>
+
+# UTF-8
+AddDefaultCharset UTF-8
+
+# Disable directory listing
+Options -Indexes
