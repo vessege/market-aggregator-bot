@@ -2,131 +2,136 @@
 <html lang="uz">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#ffffff">
-  <title>Market Aggregator</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="theme-color" content="#0f172a">
+  <title>MarketCompare</title>
   <link rel="stylesheet" href="assets/css/styles.css">
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-  <div id="app">
-    <!-- Header -->
-    <header class="header">
-      <button class="header-btn" id="menu-btn" aria-label="Menu">
-        <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
-      </button>
-      <label class="search-bar">
-        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
-        <input type="search" id="search-input" placeholder="Mahsulotlarni toping" autocomplete="off">
-      </label>
-    </header>
+  <header class="topbar">
+    <div class="logo">🛍 <span>MarketCompare</span></div>
+    <button class="lang-btn" id="langBtn">🌐 UZ</button>
+  </header>
 
-    <!-- Pages -->
-    <main id="page-home" class="page page--active">
-      <!-- Banner carousel -->
-      <section class="banners" id="banners">
-        <div class="banner banner--orange">
-          <div class="banner__title">100% jonli<br>narxlar</div>
-          <div class="banner__sub">O'zbek &amp; global do'konlar</div>
-        </div>
-        <div class="banner banner--purple">
-          <div class="banner__title">Eng yaxshi<br>takliflar</div>
-          <div class="banner__sub">Real vaqt narxlari</div>
-        </div>
-        <div class="banner banner--green">
-          <div class="banner__title">Sevimlilar<br>ro'yxati</div>
-          <div class="banner__sub">Yoqtirgan mahsulotlaringiz</div>
-        </div>
-      </section>
-
-      <!-- Categories chip list -->
-      <nav class="categories" id="categories"></nav>
-
-      <!-- Products grid -->
-      <section class="grid" id="products-grid"></section>
-      <div class="loader" id="loader" hidden>
-        <div class="spinner"></div>
+  <main id="app">
+    <!-- Home view -->
+    <section id="view-home" class="view active">
+      <div class="search-box">
+        <span class="ico">🔍</span>
+        <input type="text" id="searchInput" placeholder="Mahsulot qidirish...">
+        <button id="searchBtn">Qidirish</button>
       </div>
-      <div class="empty-state" id="empty-state" hidden>
-        <div class="empty-state__icon">📦</div>
-        <p>Mahsulot topilmadi</p>
-      </div>
-    </main>
 
-    <main id="page-favorites" class="page">
-      <h1 class="page-title">Sevimlilar</h1>
-      <section class="grid" id="favorites-grid"></section>
-      <div class="empty-state" id="favorites-empty" hidden>
-        <div class="empty-state__icon">❤️</div>
-        <p>Sevimlilar ro'yxati bo'sh</p>
-      </div>
-    </main>
+      <h2 class="section-title" data-i18n="markets">Marketplacelar</h2>
+      <div id="marketGrid" class="market-grid"></div>
 
-    <main id="page-profile" class="page">
-      <h1 class="page-title">Profil</h1>
-      <div class="profile" id="profile-card">
-        <div class="profile__avatar" id="profile-avatar">?</div>
-        <div class="profile__info">
-          <div class="profile__name" id="profile-name">Mehmon</div>
-          <div class="profile__id" id="profile-id"></div>
+      <h2 class="section-title" data-i18n="categories">Mashhur kategoriyalar</h2>
+      <div class="cat-grid">
+        <button class="cat-card" data-q="smartfon">📱<span data-i18n="catPhone">Smartfon</span></button>
+        <button class="cat-card" data-q="laptop">💻<span data-i18n="catLaptop">Noutbuk</span></button>
+        <button class="cat-card" data-q="televizor">📺<span data-i18n="catTv">Televizor</span></button>
+        <button class="cat-card" data-q="krossovka">👟<span data-i18n="catShoes">Krossovka</span></button>
+        <button class="cat-card" data-q="soat">⌚<span data-i18n="catWatch">Soat</span></button>
+        <button class="cat-card" data-q="naushnik">🎧<span data-i18n="catHeadphones">Naushnik</span></button>
+      </div>
+
+      <h2 class="section-title" data-i18n="topProducts">Mashhur mahsulotlar</h2>
+      <div id="resultsLoadingHome" class="loading hidden">⏳ Yuklanmoqda...</div>
+      <div id="homeGrid" class="product-grid"></div>
+    </section>
+
+    <!-- Search results view -->
+    <section id="view-results" class="view">
+      <div class="results-head">
+        <button class="back-btn" data-back="home">←</button>
+        <div class="results-title" id="resultsTitle">Natijalar</div>
+      </div>
+
+      <div class="filter-bar" id="filterBar">
+        <button class="chip active" data-source="">Barchasi</button>
+      </div>
+
+      <div class="sort-bar">
+        <button class="sort-btn active" data-sort="popular">🏆 Reyting</button>
+        <button class="sort-btn" data-sort="price_asc">💰 Arzon</button>
+        <button class="sort-btn" data-sort="price_desc">💎 Qimmat</button>
+        <button class="sort-btn" data-sort="rating">⭐ Sharhlar</button>
+      </div>
+
+      <div id="resultsLoading" class="loading hidden">⏳ Qidirilmoqda...</div>
+      <div id="resultsEmpty" class="empty hidden">😔 Hech narsa topilmadi</div>
+      <div id="resultsGrid" class="product-grid"></div>
+    </section>
+
+    <!-- Single marketplace view -->
+    <section id="view-market" class="view">
+      <div class="results-head">
+        <button class="back-btn" data-back="home">←</button>
+        <div class="results-title" id="marketTitle">Marketplace</div>
+      </div>
+      <div class="search-box small">
+        <span class="ico">🔍</span>
+        <input type="text" id="marketSearchInput" placeholder="Mahsulot qidirish...">
+      </div>
+      <div id="marketLoading" class="loading hidden">⏳ Yuklanmoqda...</div>
+      <div id="marketEmpty" class="empty hidden">😔 Mahsulot yo'q</div>
+      <div id="marketGridResults" class="product-grid"></div>
+    </section>
+
+    <!-- Product detail view -->
+    <section id="view-product" class="view">
+      <div class="results-head">
+        <button class="back-btn" data-back="results">←</button>
+        <div class="results-title" data-i18n="product">Mahsulot</div>
+        <button class="fav-btn" id="favBtn" aria-label="Sevimli">🤍</button>
+      </div>
+      <div id="productDetail"></div>
+    </section>
+
+    <!-- Favorites view -->
+    <section id="view-favs" class="view">
+      <div class="results-head">
+        <button class="back-btn" data-back="home">←</button>
+        <div class="results-title" data-i18n="favOpen">❤️ Sevimlilar</div>
+      </div>
+      <div id="favsLoading" class="loading hidden">⏳</div>
+      <div id="favsGrid" class="product-grid"></div>
+      <div id="favsEmpty" class="empty hidden">Hozircha sevimli mahsulot yo'q</div>
+    </section>
+
+    <!-- Profile view -->
+    <section id="view-profile" class="view">
+      <div class="results-head">
+        <button class="back-btn" data-back="home">←</button>
+        <div class="results-title" data-i18n="profile">👤 Profil</div>
+      </div>
+      <div class="profile-card">
+        <div class="profile-avatar" id="profileAvatar">?</div>
+        <div class="profile-info">
+          <div class="profile-name" id="profileName">Mehmon</div>
+          <div class="profile-id" id="profileId"></div>
         </div>
       </div>
-      <div class="profile-stats" id="profile-stats">
-        <div class="stat"><span class="stat__num" id="stat-favorites">0</span><span class="stat__label">Sevimlilar</span></div>
-        <div class="stat"><span class="stat__num" id="stat-sources">0</span><span class="stat__label">Marketlar</span></div>
+      <div class="profile-stats">
+        <div class="stat-card"><div class="stat-num" id="statFavs">0</div><div class="stat-label" data-i18n="favOpen">Sevimlilar</div></div>
+        <div class="stat-card"><div class="stat-num" id="statSources">0</div><div class="stat-label" data-i18n="markets">Marketlar</div></div>
       </div>
-      <ul class="menu">
-        <li class="menu__item" data-action="about"><span>Bot haqida</span><span>›</span></li>
-        <li class="menu__item" data-action="contact"><span>Bog'lanish</span><span>›</span></li>
-      </ul>
-    </main>
-
-    <!-- Product detail modal -->
-    <div class="sheet" id="product-sheet" hidden>
-      <div class="sheet__overlay"></div>
-      <div class="sheet__content">
-        <button class="sheet__close" id="sheet-close" aria-label="Yopish">
-          <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-        </button>
-        <button class="sheet__fav" id="sheet-fav" aria-label="Sevimli">
-          <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 1 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-        </button>
-        <div class="sheet__body">
-          <div class="sheet__gallery" id="sheet-gallery"></div>
-          <div class="sheet__title" id="sheet-title">—</div>
-          <div class="sheet__rating" id="sheet-rating"></div>
-          <div class="sheet__price-row">
-            <div class="sheet__price" id="sheet-price">—</div>
-            <div class="sheet__old-price" id="sheet-old-price"></div>
-            <div class="sheet__discount" id="sheet-discount"></div>
-          </div>
-          <div class="sheet__meta" id="sheet-meta"></div>
-          <div class="sheet__synced" id="sheet-synced"></div>
-          <div class="sheet__seller" id="sheet-seller"></div>
-          <div class="sheet__desc" id="sheet-desc"></div>
-        </div>
-        <div class="sheet__cta">
-          <button class="cta-btn" id="cta-buy">Marketda sotib olish</button>
-        </div>
+      <div class="menu-list">
+        <button class="menu-item" id="menuLang"><span>🌐 <span data-i18n="langTitle">Tilni tanlang</span></span><span>›</span></button>
+        <button class="menu-item" id="menuShare"><span>📤 <span data-i18n="share">Ulashish</span></span><span>›</span></button>
+        <a class="menu-item" href="../admin/" target="_blank"><span>🛠 <span data-i18n="admin">Admin panel</span></span><span>›</span></a>
       </div>
-    </div>
+    </section>
+  </main>
 
-    <!-- Bottom nav -->
-    <nav class="bottom-nav">
-      <button class="nav-item is-active" data-page="home">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2h-4v-7h-6v7H5a2 2 0 0 1-2-2z"/></svg>
-        <span>Bosh</span>
-      </button>
-      <button class="nav-item" data-page="favorites">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 1 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-        <span>Sevimli</span>
-      </button>
-      <button class="nav-item" data-page="profile">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
-        <span>Profil</span>
-      </button>
-    </nav>
-  </div>
+  <nav class="bottom-nav">
+    <button class="nav-btn active" data-view="home"><span>🏠</span><span data-i18n="navHome">Bosh sahifa</span></button>
+    <button class="nav-btn" data-view="favs"><span>❤️</span><span data-i18n="favOpen">Sevimlilar</span></button>
+    <button class="nav-btn" data-view="profile"><span>👤</span><span data-i18n="profile">Profil</span></button>
+  </nav>
+
+  <div class="toast" id="toast"></div>
 
   <script src="assets/js/app.js"></script>
 </body>

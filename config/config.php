@@ -24,15 +24,23 @@ return [
         'webhook_secret'  => (string) Env::get('WEBHOOK_SECRET', ''),
         'admin_tg_ids'    => array_filter(array_map('trim', explode(',', (string) Env::get('ADMIN_TELEGRAM_IDS', '')))),
     ],
-    'db' => [
-        'driver'      => (string) Env::get('DB_DRIVER', 'mysql'),
-        'host'        => (string) Env::get('DB_HOST', '127.0.0.1'),
-        'port'        => (int)    Env::get('DB_PORT', 3306),
-        'name'        => (string) Env::get('DB_NAME', 'market_bot'),
-        'user'        => (string) Env::get('DB_USER', 'root'),
-        'pass'        => (string) Env::get('DB_PASS', ''),
-        'sqlite_path' => (string) Env::get('DB_SQLITE_PATH', __DIR__ . '/../storage/database.sqlite'),
-    ],
+    'db' => (function (): array {
+        $sqlitePath = (string) Env::get('DB_SQLITE_PATH', __DIR__ . '/../storage/database.sqlite');
+        if ($sqlitePath !== '' && $sqlitePath[0] !== '/' && !preg_match('#^[A-Za-z]:[\\\\/]#', $sqlitePath)) {
+            // Resolve relative paths against the repo root so PHP's built-in
+            // server (which changes CWD per request) keeps using one DB file.
+            $sqlitePath = dirname(__DIR__) . '/' . ltrim($sqlitePath, './');
+        }
+        return [
+            'driver'      => (string) Env::get('DB_DRIVER', 'mysql'),
+            'host'        => (string) Env::get('DB_HOST', '127.0.0.1'),
+            'port'        => (int)    Env::get('DB_PORT', 3306),
+            'name'        => (string) Env::get('DB_NAME', 'market_bot'),
+            'user'        => (string) Env::get('DB_USER', 'root'),
+            'pass'        => (string) Env::get('DB_PASS', ''),
+            'sqlite_path' => $sqlitePath,
+        ];
+    })(),
     'admin' => [
         'username' => (string) Env::get('ADMIN_USERNAME', 'admin'),
         'password' => (string) Env::get('ADMIN_PASSWORD', 'admin123'),
