@@ -8,6 +8,7 @@ DROP TABLE IF EXISTS `subscription_channels`;
 DROP TABLE IF EXISTS `favorites`;
 DROP TABLE IF EXISTS `cart_items`;
 DROP TABLE IF EXISTS `parser_runs`;
+DROP TABLE IF EXISTS `dynamic_sources`;
 DROP TABLE IF EXISTS `products`;
 DROP TABLE IF EXISTS `categories`;
 DROP TABLE IF EXISTS `users`;
@@ -171,6 +172,36 @@ CREATE TABLE `parser_runs` (
   `finished_at` DATETIME NULL,
   PRIMARY KEY (`id`),
   KEY `idx_parser_runs_source` (`source`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Admin tomonidan boshqariladigan dinamik manbalar (yangi market'larni admin paneldan qo'shish)
+CREATE TABLE `dynamic_sources` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `slug` VARCHAR(64) NOT NULL,
+  `display_name` VARCHAR(128) NOT NULL,
+  `base_url` VARCHAR(255) NULL,
+  `search_url` TEXT NOT NULL,
+  `http_method` VARCHAR(8) NOT NULL DEFAULT 'GET',
+  `headers_json` TEXT NULL,
+  `body_template` TEXT NULL,
+  `items_path` VARCHAR(255) NULL,
+  `field_id` VARCHAR(255) NULL,
+  `field_title` VARCHAR(255) NULL,
+  `field_price` VARCHAR(255) NULL,
+  `field_old_price` VARCHAR(255) NULL,
+  `field_currency` VARCHAR(255) NULL,
+  `field_image` VARCHAR(255) NULL,
+  `field_url` VARCHAR(255) NULL,
+  `field_rating` VARCHAR(255) NULL,
+  `field_reviews` VARCHAR(255) NULL,
+  `field_sold` VARCHAR(255) NULL,
+  `external_url_tpl` VARCHAR(255) NULL,
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_slug` (`slug`),
+  KEY `idx_dyn_src_active` (`is_active`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Sozlamalar (key-value)

@@ -6,6 +6,7 @@ use MarketBot\Core\Database;
 use MarketBot\Core\Logger;
 use MarketBot\Parsers\HttpClient;
 use MarketBot\Parsers\ParserManager;
+use MarketBot\Parsers\ParserRegistry;
 use MarketBot\Parsers\UzumParser;
 use MarketBot\Parsers\WildberriesParser;
 use MarketBot\Telegram\UserRepository;
@@ -81,7 +82,7 @@ if ($authUser) {
 try {
     switch ($path) {
         case 'products': {
-            $items = $products->search([
+            $filter = [
                 'q'         => $_GET['q']         ?? null,
                 'category'  => $_GET['category']  ?? null,
                 'source'    => $_GET['source']    ?? null,
@@ -90,12 +91,52 @@ try {
                 'sort'      => $_GET['sort']      ?? null,
                 'limit'     => $_GET['limit']     ?? 30,
                 'offset'    => $_GET['offset']    ?? 0,
-            ]);
+            ];
+            $items = $products->search($filter);
+
+            // Live search fallback: when the user typed a query and we have
+            // few/no local results, hit the marketplaces in real time, persist
+            // what comes back, and re-query the local index so we return a
+            // unified list.
+            $q = trim((string) ($filter['q'] ?? ''));
+            $liveAllowed = ($_GET['live'] ?? '1') !== '0';
+            $liveThreshold = 5;
+            $liveTriggered = false;
+            $liveStats = null;
+            if ($liveAllowed && $q !== '' && count($items) < $liveThreshold) {
+                try {
+                    $manager = ParserRegistry::build($config);
+                    $sources = null;
+                    if (!empty($filter['source'])) {
+                        $sources = [(string) $filter['source']];
+                    }
+                    $liveStats = $manager->searchAll($q, $sources, 20);
+                    $liveTriggered = true;
+                    if (($liveStats['total'] ?? 0) > 0) {
+                        $items = $products->search($filter);
+                    }
+                } catch (\Throwable $e) {
+                    Logger::error('api', 'live search failed', [
+                        'q' => $q, 'err' => $e->getMessage(),
+                    ]);
+                }
+            }
+
             if ($dbUserId !== null) {
                 $favIds = $products->favoriteIds($dbUserId);
                 $products->attachFavoriteFlag($items, $favIds);
             }
-            ok(['products' => $items]);
+
+            $resp = ['products' => $items];
+            if ($liveTriggered) {
+                $resp['live'] = [
+                    'triggered' => true,
+                    'inserted'  => (int) ($liveStats['inserted'] ?? 0),
+                    'updated'   => (int) ($liveStats['updated'] ?? 0),
+                    'by_source' => $liveStats['by_source'] ?? [],
+                ];
+            }
+            ok($resp);
         }
 
         case 'categories': {
@@ -110,16 +151,9 @@ try {
 
             // On-demand "live" refresh if older than 5 minutes.
             $stale = isset($p['updated_at']) && (time() - strtotime((string) $p['updated_at']) > 300);
-            if ($stale && $p['source'] === 'uzum') {
+            if ($stale) {
                 try {
-                    $http = new HttpClient(
-                        userAgent: $config['parser']['user_agent'],
-                        timeout:   $config['parser']['timeout'],
-                        delayMs:   0
-                    );
-                    $manager = new ParserManager($http);
-                    $manager->register(new UzumParser($http));
-                    $manager->register(new WildberriesParser($http));
+                    $manager = ParserRegistry::build($config);
                     if (in_array($p['source'], array_keys($manager->all()), true)) {
                         $manager->refreshProduct((string) $p['source'], (string) $p['external_id']);
                         $p = $products->findById($id);
@@ -155,10 +189,7 @@ try {
         }
 
         case 'sources': {
-            $http = new HttpClient(userAgent: $config['parser']['user_agent']);
-            $manager = new ParserManager($http);
-            $manager->register(new UzumParser($http));
-            $manager->register(new WildberriesParser($http));
+            $manager = ParserRegistry::build($config);
             $list = [];
             foreach ($manager->all() as $src => $parser) {
                 $list[] = ['source' => $src, 'name' => $parser->displayName()];
