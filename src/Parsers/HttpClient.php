@@ -30,6 +30,21 @@ final class HttpClient
     }
 
     /**
+     * Post a JSON body. Encodes $body and forces a JSON Content-Type/Accept.
+     *
+     * @param array<string,mixed>|string $body
+     * @param array<string,string>       $headers
+     * @return array{ok:bool, status:int, body:string, error:?string}
+     */
+    public function postJson(string $url, array|string $body, array $headers = []): array
+    {
+        $headers['Content-Type'] = $headers['Content-Type'] ?? 'application/json';
+        $headers['Accept']       = $headers['Accept']       ?? 'application/json';
+        $payload = is_string($body) ? $body : json_encode($body, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        return $this->request('POST', $url, $payload, $headers);
+    }
+
+    /**
      * @param array<string,string> $headers
      * @return array{ok:bool, status:int, body:string, error:?string}
      */

@@ -22,6 +22,7 @@ $user = Auth::user();
     <nav class="sidebar__nav">
       <a href="index.php"      class="<?= $activeMenu === 'dashboard' ? 'is-active' : '' ?>">📊 Dashboard</a>
       <a href="parsers.php"    class="<?= $activeMenu === 'parsers'   ? 'is-active' : '' ?>">🔄 Parserlar</a>
+      <a href="markets.php"    class="<?= $activeMenu === 'markets'   ? 'is-active' : '' ?>">🏬 Marketlar</a>
       <a href="products.php"   class="<?= $activeMenu === 'products'  ? 'is-active' : '' ?>">📦 Mahsulotlar</a>
       <a href="broadcast.php"  class="<?= $activeMenu === 'broadcast' ? 'is-active' : '' ?>">📣 Xabar yuborish</a>
       <a href="channels.php"   class="<?= $activeMenu === 'channels'  ? 'is-active' : '' ?>">📌 Majburiy obuna</a>
