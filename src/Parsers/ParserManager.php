@@ -102,6 +102,69 @@ final class ParserManager
         return $product;
     }
 
+    /**
+     * Run a live full-text search across all (or a filtered set of) registered
+     * parsers and persist the results to the products table.
+     *
+     * @param array<string>|null $sources Limit to these source slugs (null = all).
+     * @return array{ok:bool, total:int, inserted:int, updated:int, by_source:array<string,array<string,int>>, errors:array<string,string>}
+     */
+    public function searchAll(string $query, ?array $sources = null, int $limitPerSource = 20): array
+    {
+        $inserted = 0;
+        $updated = 0;
+        $total = 0;
+        $bySource = [];
+        $errors = [];
+
+        $targets = $sources === null
+            ? array_keys($this->parsers)
+            : array_values(array_intersect($sources, array_keys($this->parsers)));
+
+        foreach ($targets as $src) {
+            $parser = $this->parsers[$src];
+            $i = 0;
+            $u = 0;
+            try {
+                foreach ($parser->searchQuery($query, ['limit' => $limitPerSource]) as $product) {
+                    $res = $this->upsertProduct($product);
+                    if ($res === 'inserted') {
+                        $inserted++;
+                        $i++;
+                    } elseif ($res === 'updated') {
+                        $updated++;
+                        $u++;
+                    }
+                    $total++;
+                }
+                $bySource[$src] = ['inserted' => $i, 'updated' => $u];
+            } catch (\Throwable $e) {
+                Logger::error('parser', "live search failed for $src", ['error' => $e->getMessage()]);
+                $errors[$src] = $e->getMessage();
+            }
+        }
+
+        return [
+            'ok' => empty($errors) || $total > 0,
+            'total' => $total,
+            'inserted' => $inserted,
+            'updated' => $updated,
+            'by_source' => $bySource,
+            'errors' => $errors,
+        ];
+    }
+
+    /**
+     * Public upsert helper for callers that build ParsedProducts themselves
+     * (e.g. dynamic JSON parsers configured at runtime).
+     *
+     * @return 'inserted'|'updated'|'skipped'
+     */
+    public function upsert(ParsedProduct $p): string
+    {
+        return $this->upsertProduct($p);
+    }
+
     /** @return 'inserted'|'updated'|'skipped' */
     private function upsertProduct(ParsedProduct $p): string
     {

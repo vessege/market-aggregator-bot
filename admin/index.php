@@ -8,12 +8,21 @@ $config = require __DIR__ . '/_bootstrap.php';
 Auth::requireLogin();
 
 $pdo = Database::pdo();
+
+$count = static function (string $sql) use ($pdo): int {
+    try {
+        $row = $pdo->query($sql)->fetch();
+        return (int) ($row['c'] ?? 0);
+    } catch (\Throwable) {
+        return 0;
+    }
+};
+
 $stats = [
-    'users'      => (int) ($pdo->query('SELECT COUNT(*) AS c FROM users')->fetch()['c']           ?? 0),
-    'products'   => (int) ($pdo->query('SELECT COUNT(*) AS c FROM products WHERE is_active=1')->fetch()['c'] ?? 0),
-    'favorites'  => (int) ($pdo->query('SELECT COUNT(*) AS c FROM favorites')->fetch()['c']       ?? 0),
-    'channels'   => (int) ($pdo->query('SELECT COUNT(*) AS c FROM subscription_channels WHERE is_active=1')->fetch()['c'] ?? 0),
-    'broadcasts' => (int) ($pdo->query('SELECT COUNT(*) AS c FROM broadcasts')->fetch()['c']      ?? 0),
+    'products'  => $count('SELECT COUNT(*) AS c FROM products WHERE is_active=1'),
+    'sources'   => $count('SELECT COUNT(*) AS c FROM (SELECT DISTINCT source FROM products) AS s'),
+    'markets'   => $count('SELECT COUNT(*) AS c FROM dynamic_sources WHERE is_active=1'),
+    'runs'      => $count('SELECT COUNT(*) AS c FROM parser_runs'),
 ];
 
 $bySource = $pdo->query("SELECT source, COUNT(*) AS c FROM products WHERE is_active=1 GROUP BY source")->fetchAll();
@@ -22,11 +31,10 @@ $lastRuns = $pdo->query("SELECT * FROM parser_runs ORDER BY id DESC LIMIT 8")->f
 ob_start();
 ?>
 <div class="cards">
-  <div class="kcard"><div class="kcard__num"><?= $stats['users'] ?></div><div class="kcard__lbl">Foydalanuvchi</div></div>
   <div class="kcard"><div class="kcard__num"><?= $stats['products'] ?></div><div class="kcard__lbl">Mahsulot</div></div>
-  <div class="kcard"><div class="kcard__num"><?= $stats['favorites'] ?></div><div class="kcard__lbl">Sevimli</div></div>
-  <div class="kcard"><div class="kcard__num"><?= $stats['channels'] ?></div><div class="kcard__lbl">Majburiy kanal</div></div>
-  <div class="kcard"><div class="kcard__num"><?= $stats['broadcasts'] ?></div><div class="kcard__lbl">Xabar yuborilgan</div></div>
+  <div class="kcard"><div class="kcard__num"><?= $stats['sources'] ?></div><div class="kcard__lbl">Faol manba</div></div>
+  <div class="kcard"><div class="kcard__num"><?= $stats['markets'] ?></div><div class="kcard__lbl">Custom market</div></div>
+  <div class="kcard"><div class="kcard__num"><?= $stats['runs'] ?></div><div class="kcard__lbl">Parser ishlari</div></div>
 </div>
 
 <h2>Manbalar bo'yicha mahsulotlar</h2>

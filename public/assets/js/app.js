@@ -1,340 +1,535 @@
-/* Market Aggregator Bot — WebApp client */
-(() => {
+/* ==============================================================
+ * MarketCompare — standalone web frontend
+ * No Telegram WebApp dependency. Liquid-glass UI.
+ * ============================================================== */
+(function () {
   'use strict';
 
-  const tg = window.Telegram && window.Telegram.WebApp;
-  if (tg) {
-    tg.ready();
-    tg.expand();
-    if (tg.colorScheme === 'dark') {
-      document.body.classList.add('tg-dark');
+  const API_BASE = '../api/index.php';
+
+  // ---------- i18n ----------
+  const I18N = {
+    uz: {
+      heroTitle: 'Bir qidiruv — ko‘p marketdan natija',
+      heroSub: 'Uzum, Wildberries va boshqa marketplacelar bo‘yicha narxlarni real vaqtda taqqoslang.',
+      search: 'Qidirish', searching: 'Qidirilmoqda...', empty: 'Hech narsa topilmadi',
+      all: 'Barchasi', score: '🏆 Reyting', cheap: '💰 Arzon', expensive: '💎 Qimmat',
+      reviews: '⭐ Sharhlar', open: '🛒 Marketda sotib olish',
+      langTitle: 'Tilni tanlang', delivery: 'Yetkazib berish', days: 'kun',
+      seller: 'Sotuvchi', rating: 'Reyting', source: 'Manba',
+      similar: 'Boshqa mahsulotlar', synced: 'Yangilangan',
+      markets: 'Marketplacelar', categories: 'Mashhur kategoriyalar',
+      topProducts: 'Mashhur mahsulotlar', product: 'Mahsulot',
+      navHome: 'Bosh sahifa', admin: 'Admin',
+      local: '🇺🇿 Mahalliy', intl: '🌍 Xalqaro',
+      catPhone: 'Smartfon', catLaptop: 'Noutbuk', catTv: 'Televizor',
+      catShoes: 'Krossovka', catWatch: 'Soat', catHeadphones: 'Naushnik',
+    },
+    ru: {
+      heroTitle: 'Один поиск — результаты со всех маркетплейсов',
+      heroSub: 'Сравнивайте цены на Uzum, Wildberries и других маркетплейсах в реальном времени.',
+      search: 'Поиск', searching: 'Поиск...', empty: 'Ничего не найдено',
+      all: 'Все', score: '🏆 Рейтинг', cheap: '💰 Дешёвые', expensive: '💎 Дорогие',
+      reviews: '⭐ Отзывы', open: '🛒 Купить в магазине',
+      langTitle: 'Выберите язык', delivery: 'Доставка', days: 'дн.',
+      seller: 'Продавец', rating: 'Рейтинг', source: 'Источник',
+      similar: 'Похожие товары', synced: 'Обновлено',
+      markets: 'Маркетплейсы', categories: 'Категории',
+      topProducts: 'Популярные товары', product: 'Товар',
+      navHome: 'Главная', admin: 'Админ',
+      local: '🇺🇿 Локальные', intl: '🌍 Международные',
+      catPhone: 'Смартфон', catLaptop: 'Ноутбук', catTv: 'Телевизор',
+      catShoes: 'Кроссовки', catWatch: 'Часы', catHeadphones: 'Наушники',
+    },
+    en: {
+      heroTitle: 'One search — results from many marketplaces',
+      heroSub: 'Compare prices across Uzum, Wildberries and other marketplaces in real time.',
+      search: 'Search', searching: 'Searching...', empty: 'Nothing found',
+      all: 'All', score: '🏆 Score', cheap: '💰 Cheapest', expensive: '💎 Premium',
+      reviews: '⭐ Reviews', open: '🛒 Buy on marketplace',
+      langTitle: 'Select language', delivery: 'Delivery', days: 'days',
+      seller: 'Seller', rating: 'Rating', source: 'Source',
+      similar: 'More products', synced: 'Updated',
+      markets: 'Marketplaces', categories: 'Categories',
+      topProducts: 'Top products', product: 'Product',
+      navHome: 'Home', admin: 'Admin',
+      local: '🇺🇿 Local', intl: '🌍 International',
+      catPhone: 'Phone', catLaptop: 'Laptop', catTv: 'TV',
+      catShoes: 'Sneakers', catWatch: 'Watch', catHeadphones: 'Headphones',
+    },
+  };
+
+  let lang = localStorage.getItem('mc_lang') || 'uz';
+  if (!I18N[lang]) lang = 'uz';
+  const t = (k) => (I18N[lang] && I18N[lang][k]) || k;
+
+  // ---------- Theme ----------
+  function getStoredTheme() {
+    return localStorage.getItem('mc_theme') || '';
+  }
+  function applyTheme(theme) {
+    if (theme === 'light' || theme === 'dark') {
+      document.documentElement.setAttribute('data-theme', theme);
+    } else {
+      document.documentElement.removeAttribute('data-theme');
+    }
+    const btn = document.getElementById('themeBtn');
+    if (btn) {
+      const eff = theme || (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+      btn.textContent = eff === 'dark' ? '🌙' : '☀️';
     }
   }
+  function toggleTheme() {
+    const cur = getStoredTheme();
+    const sysDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    let next;
+    if (!cur) next = sysDark ? 'light' : 'dark';
+    else if (cur === 'dark') next = 'light';
+    else next = 'dark';
+    localStorage.setItem('mc_theme', next);
+    applyTheme(next);
+  }
 
-  const API_BASE = '../api/';
-  const initData = tg ? tg.initData : '';
+  // ---------- State ----------
+  const state = {
+    products: [],
+    sourceFilter: '',
+    sortMode: 'popular',
+    marketplaces: [],
+    currentProduct: null,
+    lastQuery: '',
+    lastSource: '',
+  };
 
-  /** ---------- API helpers ---------- */
-  async function api(action, opts = {}) {
-    const url = new URL(API_BASE + 'index.php', window.location.href);
+  // ---------- Utilities ----------
+  const $ = (s) => document.querySelector(s);
+  const $$ = (s) => Array.from(document.querySelectorAll(s));
+
+  function escapeHtml(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({
+      '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+    })[c]);
+  }
+
+  function fmtPrice(amount, currency) {
+    currency = (currency || 'UZS').toUpperCase();
+    const n = Math.round(Number(amount) || 0);
+    const s = n.toLocaleString('ru-RU').replace(/,/g, ' ');
+    if (currency === 'UZS') return s + ' so‘m';
+    if (currency === 'USD') return '$' + s;
+    if (currency === 'RUB') return s + ' ₽';
+    if (currency === 'EUR') return '€' + s;
+    return s + ' ' + currency;
+  }
+
+  function toast(msg) {
+    const el = $('#toast');
+    if (!el) return;
+    el.textContent = msg;
+    el.classList.add('show');
+    clearTimeout(toast._t);
+    toast._t = setTimeout(() => el.classList.remove('show'), 1800);
+  }
+
+  function showView(name) {
+    $$('.view').forEach((v) => v.classList.remove('active'));
+    const v = document.getElementById('view-' + name);
+    if (v) v.classList.add('active');
+    $$('.nav-btn[data-view]').forEach((b) => {
+      b.classList.toggle('active', b.dataset.view === name);
+    });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // ---------- API ----------
+  async function api(action, opts) {
+    opts = opts || {};
+    const url = new URL(API_BASE, window.location.href);
     url.searchParams.set('action', action);
     if (opts.params) {
-      for (const [k, v] of Object.entries(opts.params)) {
+      for (const k of Object.keys(opts.params)) {
+        const v = opts.params[k];
         if (v !== null && v !== undefined && v !== '') url.searchParams.set(k, v);
       }
     }
+    const headers = { Accept: 'application/json' };
+    if (opts.body) headers['Content-Type'] = 'application/json';
     const res = await fetch(url.toString(), {
       method: opts.method || 'GET',
-      headers: {
-        'Accept': 'application/json',
-        'X-Telegram-Init-Data': initData || '',
-        ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
-      },
+      headers: headers,
       body: opts.body ? JSON.stringify(opts.body) : undefined,
     });
-    const json = await res.json().catch(() => ({ ok: false, error: 'invalid json' }));
-    if (!json.ok) {
-      throw new Error(json.error || `HTTP ${res.status}`);
-    }
+    let json;
+    try { json = await res.json(); }
+    catch (e) { return { ok: false, error: 'invalid json' }; }
     return json;
   }
 
-  /** ---------- State ---------- */
-  const state = {
-    products: [],
-    categories: [],
-    activeCategory: null,
-    favorites: [],
-    favIdSet: new Set(),
-    sources: [],
-    me: null,
-    searchQuery: '',
-  };
-
-  const $ = (sel) => document.querySelector(sel);
-  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
-
-  /** ---------- Formatting ---------- */
-  function formatPrice(value, currency) {
-    const n = Number(value || 0);
-    const s = Math.round(n).toLocaleString('uz-UZ').replace(/,/g, ' ');
-    const cur = currency === 'RUB' ? 'so\'m' : (currency === 'USD' ? '$' : 'so\'m');
-    return `${s} <small>${cur}</small>`;
-  }
-  function discountPercent(price, oldPrice) {
-    if (!oldPrice || oldPrice <= price) return null;
-    return Math.round(((oldPrice - price) / oldPrice) * 100);
-  }
-  function escapeHTML(str) {
-    return String(str || '').replace(/[&<>"']/g, c => ({
-      '&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;',
-    })[c]);
-  }
-  function stripTags(html) {
-    const t = document.createElement('div');
-    t.innerHTML = String(html || '');
-    return t.textContent || '';
+  // ---------- Backend → UI normalization ----------
+  function srcLabel(code) {
+    const m = state.marketplaces.find((x) => x.code === code);
+    return m ? m.name : (code || '').toString().toUpperCase();
   }
 
-  /** ---------- Rendering ---------- */
-  function renderCategories(target = '#categories') {
-    const node = $(target);
-    if (!node) return;
-    const items = [
-      { slug: '', name: 'Hammasi', icon: '🛍' },
-      ...state.categories,
-    ];
-    node.innerHTML = items.map(c => `
-      <button class="category-chip ${state.activeCategory === c.slug ? 'is-active' : ''}" data-slug="${escapeHTML(c.slug)}">
-        <span>${escapeHTML(c.icon || '•')}</span>
-        <span>${escapeHTML(c.name)}</span>
-      </button>
-    `).join('');
-    node.querySelectorAll('.category-chip').forEach(btn => {
-      btn.addEventListener('click', () => {
-        state.activeCategory = btn.dataset.slug || null;
-        renderCategories();
-        loadProducts();
-      });
+  function srcCategory(code) {
+    if (!code) return 'international';
+    const local = ['uzum', 'olx', 'sello', 'asaxiy', 'texnomart'];
+    return local.includes(String(code).toLowerCase()) ? 'local' : 'international';
+  }
+
+  function normalize(p) {
+    if (!p) return null;
+    const img = (p.images && p.images[0]) || p.image_url || '';
+    return {
+      id: Number(p.id),
+      source: p.source || '',
+      source_name: srcLabel(p.source || ''),
+      title: p.title || '',
+      price: Number(p.price || 0),
+      old_price: p.old_price ? Number(p.old_price) : null,
+      currency: p.currency || 'UZS',
+      url: p.external_url || p.url || '#',
+      image: img,
+      rating: p.rating ? Number(p.rating) : 0,
+      reviews: Number(p.reviews_count || p.reviews || 0),
+      sold: Number(p.sold_count || 0),
+      seller: p.seller || '',
+      synced: p.synced_at_human || '',
+      updated_at: p.updated_at || '',
+    };
+  }
+
+  // ---------- Render ----------
+  function renderMarketplaces() {
+    const grid = $('#marketGrid');
+    if (!grid) return;
+    grid.innerHTML = '';
+    if (!state.marketplaces.length) {
+      grid.innerHTML = '<div class="loading">⏳</div>';
+      return;
+    }
+    state.marketplaces.forEach((m) => {
+      const initial = (m.name || m.code || '?').substring(0, 1).toUpperCase();
+      const el = document.createElement('button');
+      el.className = 'market-card';
+      el.innerHTML = `
+        <div class="icon">${escapeHtml(initial)}</div>
+        <div class="name">${escapeHtml(m.name)}</div>
+        <div class="badge">${m.category === 'local' ? t('local') : t('intl')}</div>`;
+      el.onclick = () => openMarketplace(m);
+      grid.appendChild(el);
     });
   }
 
-  function productCardHTML(p) {
-    const discount = discountPercent(p.price, p.old_price);
-    const fav = p.is_favorite || state.favIdSet.has(Number(p.id));
-    const synced = p.synced_at_human ? `Yangilangan: ${escapeHTML(p.synced_at_human)}` : '';
-    const img = (p.images && p.images[0]) || p.image_url || '';
-    return `
-      <article class="card" data-id="${p.id}">
-        <div class="card__image-wrap">
-          ${img ? `<img class="card__image" loading="lazy" src="${escapeHTML(img)}" alt="">` : ''}
-          <span class="card__source-badge">${escapeHTML(p.source)}</span>
-          <button class="card__fav ${fav ? 'is-active' : ''}" data-action="fav" data-id="${p.id}" aria-label="Sevimli">
-            <svg viewBox="0 0 24 24" fill="${fav ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 1 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
-          </button>
+  function productCard(p) {
+    const card = document.createElement('div');
+    card.className = 'product-card';
+    const score = p.rating ? Math.round(p.rating * 20) : 0;
+    const oldP = p.old_price && p.old_price > p.price
+      ? `<span class="old-price">${fmtPrice(p.old_price, p.currency)}</span>` : '';
+    const ratingTxt = p.rating ? '⭐ ' + p.rating.toFixed(1) : '';
+    const soldTxt = p.sold ? '🛒 ' + p.sold : '';
+    const imgTag = p.image
+      ? `<img loading="lazy" src="${escapeHtml(p.image)}" alt="" onerror="this.style.display='none'">`
+      : '';
+    card.innerHTML = `
+      <div class="img-wrap">
+        <span class="src-tag">${escapeHtml(p.source_name || p.source)}</span>
+        ${score ? `<span class="score-tag">${score}</span>` : ''}
+        ${imgTag}
+      </div>
+      <div class="body">
+        <div class="title">${escapeHtml(p.title)}</div>
+        <div class="price">${fmtPrice(p.price, p.currency)}${oldP}</div>
+        <div class="meta">
+          <span>${ratingTxt}</span>
+          <span>${soldTxt}</span>
         </div>
-        <div class="card__body">
-          <div class="card__title">${escapeHTML(p.title)}</div>
-          <div class="card__price-row">
-            <span class="card__price">${formatPrice(p.price, p.currency)}</span>
-            ${p.old_price ? `<span class="card__old-price">${formatPrice(p.old_price, p.currency).replace(/<small>.*?<\/small>/, '')}</span>` : ''}
-          </div>
-          <div class="card__rating">${p.rating ? Number(p.rating).toFixed(1) : '—'} · ${p.reviews_count || 0} sharh</div>
-          <div class="card__synced">${synced}</div>
+      </div>`;
+    card.onclick = () => openProduct(p);
+    return card;
+  }
+
+  function renderResults() {
+    const list = state.products.slice();
+    if (state.sourceFilter) list.filter((p) => p.source === state.sourceFilter);
+    sortProducts(list);
+    const grid = $('#resultsGrid');
+    grid.innerHTML = '';
+    if (!list.length) {
+      $('#resultsEmpty').classList.remove('hidden');
+      return;
+    }
+    $('#resultsEmpty').classList.add('hidden');
+    list.forEach((p) => grid.appendChild(productCard(p)));
+  }
+
+  function sortProducts(list) {
+    switch (state.sortMode) {
+      case 'price_asc':  list.sort((a, b) => a.price - b.price); break;
+      case 'price_desc': list.sort((a, b) => b.price - a.price); break;
+      case 'rating':     list.sort((a, b) => b.reviews - a.reviews); break;
+      case 'popular':
+      default:           list.sort((a, b) => (b.rating * 20 + Math.log10(b.reviews + 1) * 5) -
+                                              (a.rating * 20 + Math.log10(a.reviews + 1) * 5));
+    }
+  }
+
+  function buildFilterChips() {
+    const bar = $('#filterBar');
+    if (!bar) return;
+    bar.innerHTML = '';
+    const all = document.createElement('button');
+    all.className = 'chip active';
+    all.dataset.source = '';
+    all.textContent = t('all');
+    bar.appendChild(all);
+
+    const present = new Set(state.products.map((p) => p.source));
+    state.marketplaces.filter((m) => present.has(m.code)).forEach((m) => {
+      const c = document.createElement('button');
+      c.className = 'chip';
+      c.dataset.source = m.code;
+      c.textContent = m.name;
+      bar.appendChild(c);
+    });
+
+    $$('#filterBar .chip').forEach((c) => {
+      c.onclick = () => {
+        $$('#filterBar .chip').forEach((x) => x.classList.remove('active'));
+        c.classList.add('active');
+        state.sourceFilter = c.dataset.source || '';
+        const list = state.sourceFilter
+          ? state.products.filter((p) => p.source === state.sourceFilter)
+          : state.products.slice();
+        sortProducts(list);
+        const grid = $('#resultsGrid');
+        grid.innerHTML = '';
+        if (!list.length) {
+          $('#resultsEmpty').classList.remove('hidden');
+        } else {
+          $('#resultsEmpty').classList.add('hidden');
+          list.forEach((p) => grid.appendChild(productCard(p)));
+        }
+      };
+    });
+  }
+
+  async function performSearch(query, source) {
+    const q = (query || '').trim();
+    state.lastQuery = q;
+    state.lastSource = source || '';
+    showView('results');
+    $('#resultsTitle').textContent = q ? `🔍 "${q}"` : t('topProducts');
+    $('#resultsLoading').classList.remove('hidden');
+    $('#resultsEmpty').classList.add('hidden');
+    $('#resultsGrid').innerHTML = '';
+    const data = await api('products', {
+      params: { q: q, source: source || '', sort: state.sortMode, limit: 40 },
+    });
+    $('#resultsLoading').classList.add('hidden');
+    const list = (data.ok ? (data.products || []) : []).map(normalize).filter(Boolean);
+    state.products = list;
+    state.sourceFilter = '';
+    buildFilterChips();
+    renderResults();
+  }
+
+  async function openMarketplace(m) {
+    showView('market');
+    $('#marketTitle').textContent = m.name;
+    const inp = $('#marketSearchInput');
+    if (inp) inp.dataset.source = m.code;
+    runMarketSearch(m.code, '');
+  }
+
+  async function runMarketSearch(source, query) {
+    $('#marketLoading').classList.remove('hidden');
+    $('#marketEmpty').classList.add('hidden');
+    $('#marketGridResults').innerHTML = '';
+    const data = await api('products', {
+      params: { source: source || '', q: query || '', limit: 40 },
+    });
+    $('#marketLoading').classList.add('hidden');
+    const list = (data.ok ? (data.products || []) : []).map(normalize).filter(Boolean);
+    if (!list.length) {
+      $('#marketEmpty').classList.remove('hidden');
+      return;
+    }
+    list.forEach((p) => $('#marketGridResults').appendChild(productCard(p)));
+  }
+
+  async function openProduct(p) {
+    state.currentProduct = p;
+    showView('product');
+    const root = $('#productDetail');
+    root.innerHTML = '<div class="loading">⏳</div>';
+
+    const data = await api('product', { params: { id: p.id } });
+    let fresh = p;
+    if (data.ok && data.product) fresh = normalize(data.product);
+
+    const others = state.products
+      .filter((x) => x.title === fresh.title && x.source !== fresh.source)
+      .sort((a, b) => a.price - b.price);
+    const oldP = fresh.old_price && fresh.old_price > fresh.price
+      ? `<span class="detail-old">${fmtPrice(fresh.old_price, fresh.currency)}</span>` : '';
+    const compare = others.map((o) => `
+      <a class="compare-row" href="${escapeHtml(o.url)}" target="_blank" rel="noopener">
+        <div>
+          <div class="src">${escapeHtml(o.source_name || o.source)}</div>
+          <div>${escapeHtml((o.title || '').substring(0, 50))}</div>
         </div>
-      </article>
+        <div class="p">${fmtPrice(o.price, o.currency)}</div>
+      </a>`).join('');
+
+    const syncedHtml = fresh.synced
+      ? `<div class="detail-synced">🟢 ${t('synced')}: ${escapeHtml(fresh.synced)}</div>`
+      : '';
+
+    root.innerHTML = `
+      <div class="detail-img">${fresh.image ? `<img src="${escapeHtml(fresh.image)}" alt="">` : ''}</div>
+      <div class="detail-title">${escapeHtml(fresh.title)}</div>
+      <div><span class="detail-price">${fmtPrice(fresh.price, fresh.currency)}</span>${oldP}</div>
+      ${syncedHtml}
+      <div class="detail-row"><span class="label">${t('source')}</span><span class="value">${escapeHtml(fresh.source_name || fresh.source)}</span></div>
+      ${fresh.rating ? `<div class="detail-row"><span class="label">${t('rating')}</span><span class="value">⭐ ${fresh.rating.toFixed(1)} (${fresh.reviews})</span></div>` : ''}
+      ${fresh.seller ? `<div class="detail-row"><span class="label">${t('seller')}</span><span class="value">${escapeHtml(fresh.seller)}</span></div>` : ''}
+      <a class="detail-buy" href="${escapeHtml(fresh.url)}" target="_blank" rel="noopener">${t('open')}</a>
+      ${others.length ? `<h3 class="section-title">${t('similar')}</h3><div class="compare-list">${compare}</div>` : ''}
     `;
   }
 
-  function renderProducts(items, target = '#products-grid', emptyTarget = '#empty-state') {
-    const grid = $(target);
+  async function loadHomeProducts() {
+    const grid = $('#homeGrid');
     if (!grid) return;
-    grid.innerHTML = items.map(productCardHTML).join('');
-    const empty = $(emptyTarget);
-    if (empty) empty.hidden = items.length > 0;
+    grid.innerHTML = '';
+    $('#resultsLoadingHome').classList.remove('hidden');
+    const data = await api('products', { params: { limit: 12, sort: 'popular' } });
+    $('#resultsLoadingHome').classList.add('hidden');
+    const list = (data.ok ? (data.products || []) : []).map(normalize).filter(Boolean);
+    list.forEach((p) => grid.appendChild(productCard(p)));
+    state.products = list;
+  }
 
-    grid.querySelectorAll('.card').forEach(card => {
-      card.addEventListener('click', e => {
-        if (e.target.closest('[data-action="fav"]')) return;
-        openProduct(Number(card.dataset.id));
-      });
+  // ---------- Events ----------
+  function bindEvents() {
+    $('#searchBtn').onclick = () => performSearch($('#searchInput').value, '');
+    $('#searchInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') performSearch(e.target.value, '');
     });
-    grid.querySelectorAll('[data-action="fav"]').forEach(btn => {
-      btn.addEventListener('click', e => {
-        e.stopPropagation();
-        toggleFavorite(Number(btn.dataset.id), btn);
-      });
+    $$('.cat-card').forEach((b) => {
+      b.onclick = () => performSearch(b.dataset.q, '');
     });
-  }
-
-  /** ---------- API actions ---------- */
-  async function loadProducts() {
-    const loader = $('#loader');
-    if (loader) loader.hidden = false;
-    try {
-      const params = {};
-      if (state.activeCategory) params.category = state.activeCategory;
-      if (state.searchQuery)    params.q = state.searchQuery;
-      const res = await api('products', { params });
-      state.products = res.products || [];
-      state.products.forEach(p => { if (p.is_favorite) state.favIdSet.add(Number(p.id)); });
-      renderProducts(state.products);
-    } catch (e) {
-      console.warn('loadProducts failed', e);
-      renderProducts([]);
-    } finally {
-      if (loader) loader.hidden = true;
-    }
-  }
-
-  async function loadCategories() {
-    try {
-      const res = await api('categories');
-      state.categories = res.categories || [];
-      renderCategories();
-    } catch (e) { console.warn('loadCategories failed', e); }
-  }
-
-  async function loadFavorites() {
-    try {
-      const res = await api('favorites');
-      state.favorites = res.products || [];
-      state.favIdSet = new Set(state.favorites.map(p => Number(p.id)));
-      state.favorites.forEach(p => { p.is_favorite = true; });
-      renderProducts(state.favorites, '#favorites-grid', '#favorites-empty');
-      const stat = $('#stat-favorites');
-      if (stat) stat.textContent = state.favorites.length;
-    } catch (e) {
-      const empty = $('#favorites-empty');
-      if (empty) empty.hidden = false;
-    }
-  }
-
-  async function loadMe() {
-    try {
-      const res = await api('me');
-      state.me = res.user;
-      const name = state.me ? [state.me.first_name, state.me.last_name].filter(Boolean).join(' ') : 'Mehmon';
-      $('#profile-name').textContent = name || 'Foydalanuvchi';
-      $('#profile-id').textContent = state.me ? `ID: ${state.me.id}` : '';
-      $('#profile-avatar').textContent = (name || '?').slice(0, 1).toUpperCase();
-    } catch (e) { console.warn('loadMe failed', e); }
-  }
-
-  async function loadSources() {
-    try {
-      const res = await api('sources');
-      state.sources = res.sources || [];
-      const stat = $('#stat-sources');
-      if (stat) stat.textContent = state.sources.length;
-    } catch (e) { /* ignore */ }
-  }
-
-  async function toggleFavorite(productId, btnEl) {
-    try {
-      const res = await api('toggle_favorite', { method: 'POST', body: { product_id: productId } });
-      const favorited = !!res.favorited;
-      if (favorited) state.favIdSet.add(productId); else state.favIdSet.delete(productId);
-      if (btnEl) btnEl.classList.toggle('is-active', favorited);
-      $$('.card[data-id="' + productId + '"] .card__fav').forEach(b => b.classList.toggle('is-active', favorited));
-      const sheetFav = $('#sheet-fav');
-      if (sheetFav && Number(sheetFav.dataset.id) === productId) {
-        sheetFav.classList.toggle('is-active', favorited);
-      }
-    } catch (e) {
-      if (tg && tg.showAlert) tg.showAlert('Avval botda /start ni bosing va qayta urunib ko\'ring.');
-      console.warn('toggle_favorite failed', e);
-    }
-  }
-
-  /** ---------- Product sheet ---------- */
-  async function openProduct(id) {
-    const sheet = $('#product-sheet');
-    sheet.hidden = false;
-    document.body.style.overflow = 'hidden';
-    $('#sheet-title').textContent = 'Yuklanmoqda…';
-    $('#sheet-price').textContent = '';
-    $('#sheet-gallery').innerHTML = '';
-    $('#sheet-desc').innerHTML = '';
-    $('#sheet-meta').innerHTML = '';
-    $('#sheet-seller').innerHTML = '';
-    $('#sheet-synced').textContent = '';
-
-    try {
-      const res = await api('product', { params: { id } });
-      const p = res.product;
-      $('#sheet-title').textContent = p.title;
-      $('#sheet-price').innerHTML = formatPrice(p.price, p.currency);
-      const oldEl = $('#sheet-old-price');
-      const discEl = $('#sheet-discount');
-      if (p.old_price) {
-        oldEl.innerHTML = formatPrice(p.old_price, p.currency).replace(/<small>.*?<\/small>/, '');
-        const d = discountPercent(p.price, p.old_price);
-        discEl.textContent = d ? `-${d}%` : '';
-      } else {
-        oldEl.textContent = '';
-        discEl.textContent = '';
-      }
-
-      const imgs = (p.images && p.images.length ? p.images : (p.image_url ? [p.image_url] : []));
-      $('#sheet-gallery').innerHTML = imgs
-        .slice(0, 8)
-        .map(src => `<img loading="lazy" src="${escapeHTML(src)}" alt="">`)
-        .join('');
-
-      $('#sheet-rating').innerHTML = (p.rating ? `★ ${Number(p.rating).toFixed(1)}` : '★ —')
-        + ` · ${p.reviews_count || 0} sharh · ${p.sold_count || 0} marta sotib olingan`;
-
-      $('#sheet-meta').innerHTML = `
-        <span>Manba: <strong>${escapeHTML(p.source)}</strong></span>
-        ${p.category_name ? `<span>${escapeHTML(p.category_name)}</span>` : ''}
-      `;
-      if (p.synced_at_human) {
-        $('#sheet-synced').textContent = `🟢 Narx yangilangan: ${p.synced_at_human}`;
-      }
-
-      if (p.seller) {
-        $('#sheet-seller').innerHTML = `<strong>Sotuvchi</strong>${escapeHTML(p.seller)}${p.seller_rating ? ` · ★ ${Number(p.seller_rating).toFixed(1)}` : ''}`;
-      }
-      const desc = stripTags(p.description || '');
-      if (desc) $('#sheet-desc').textContent = desc;
-
-      const fav = $('#sheet-fav');
-      fav.dataset.id = id;
-      fav.classList.toggle('is-active', !!p.is_favorite);
-      fav.onclick = () => toggleFavorite(id, fav);
-
-      const cta = $('#cta-buy');
-      cta.textContent = `${p.source[0].toUpperCase() + p.source.slice(1)}da sotib olish`;
-      cta.onclick = () => {
-        if (p.external_url) {
-          if (tg && tg.openLink) tg.openLink(p.external_url);
-          else window.open(p.external_url, '_blank');
+    $$('.sort-btn').forEach((b) => {
+      b.onclick = () => {
+        $$('.sort-btn').forEach((x) => x.classList.remove('active'));
+        b.classList.add('active');
+        state.sortMode = b.dataset.sort;
+        if (state.lastQuery !== '' || state.lastSource !== '') {
+          performSearch(state.lastQuery, state.lastSource);
+        } else {
+          renderResults();
         }
       };
-    } catch (e) {
-      $('#sheet-title').textContent = 'Xatolik';
-      $('#sheet-desc').textContent = e.message || 'Mahsulotni yuklab bo\'lmadi.';
-    }
-  }
-
-  function closeSheet() {
-    $('#product-sheet').hidden = true;
-    document.body.style.overflow = '';
-  }
-
-  /** ---------- Navigation ---------- */
-  function goPage(name) {
-    $$('.page').forEach(el => el.classList.remove('page--active'));
-    const target = $(`#page-${name}`);
-    if (target) target.classList.add('page--active');
-    $$('.nav-item').forEach(el => el.classList.toggle('is-active', el.dataset.page === name));
-    if (name === 'favorites') loadFavorites();
-  }
-
-  /** ---------- Init ---------- */
-  function bind() {
-    $$('.nav-item').forEach(el => {
-      el.addEventListener('click', () => goPage(el.dataset.page));
     });
-    $('#sheet-close').addEventListener('click', closeSheet);
-    $('.sheet__overlay').addEventListener('click', closeSheet);
+    $$('.back-btn').forEach((b) => {
+      b.onclick = () => showView(b.dataset.back || 'home');
+    });
+    $$('.nav-btn[data-view]').forEach((b) => {
+      b.onclick = () => {
+        const v = b.dataset.view;
+        if (v === 'markets-jump') {
+          showView('home');
+          // Smooth scroll to marketplaces section.
+          setTimeout(() => {
+            const target = document.getElementById('marketGrid');
+            if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          }, 50);
+        } else {
+          showView(v);
+        }
+      };
+    });
+    $('#langBtn').onclick = showLangPicker;
+    $('#themeBtn').onclick = toggleTheme;
 
-    let searchTimer = null;
-    $('#search-input').addEventListener('input', e => {
-      state.searchQuery = e.target.value.trim();
-      clearTimeout(searchTimer);
-      searchTimer = setTimeout(loadProducts, 300);
+    $('#marketSearchInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        const src = e.target.dataset.source;
+        runMarketSearch(src, e.target.value);
+      }
     });
   }
 
+  function showLangPicker() {
+    const m = document.createElement('div');
+    m.className = 'lang-modal show';
+    m.innerHTML = `
+      <div class="sheet">
+        <h3>${t('langTitle')}</h3>
+        <button data-l="uz">🇺🇿 O‘zbekcha</button>
+        <button data-l="ru">🇷🇺 Русский</button>
+        <button data-l="en">🇬🇧 English</button>
+      </div>`;
+    m.onclick = (e) => {
+      const l = e.target && e.target.dataset && e.target.dataset.l;
+      if (l) {
+        lang = l;
+        localStorage.setItem('mc_lang', lang);
+        const lbl = $('#langLabel');
+        if (lbl) lbl.textContent = lang.toUpperCase();
+        applyTexts();
+        m.remove();
+      } else if (e.target === m) {
+        m.remove();
+      }
+    };
+    document.body.appendChild(m);
+  }
+
+  function applyTexts() {
+    $('#searchInput').placeholder = t('search') + '...';
+    const ms = $('#marketSearchInput');
+    if (ms) ms.placeholder = t('search') + '...';
+    const sb = $('#searchBtn').querySelector('span');
+    if (sb) sb.textContent = t('search');
+    const sortBtns = $$('.sort-btn');
+    if (sortBtns[0]) sortBtns[0].textContent = t('score');
+    if (sortBtns[1]) sortBtns[1].textContent = t('cheap');
+    if (sortBtns[2]) sortBtns[2].textContent = t('expensive');
+    if (sortBtns[3]) sortBtns[3].textContent = t('reviews');
+    document.querySelectorAll('[data-i18n]').forEach((el) => {
+      const k = el.dataset.i18n;
+      if (k && I18N[lang] && I18N[lang][k]) el.textContent = I18N[lang][k];
+    });
+    if (state.marketplaces.length) renderMarketplaces();
+  }
+
+  // ---------- Init ----------
   async function init() {
-    bind();
-    await loadCategories();
-    await loadProducts();
-    await loadMe();
-    await loadSources();
+    applyTheme(getStoredTheme());
+    const lbl = $('#langLabel');
+    if (lbl) lbl.textContent = lang.toUpperCase();
+    bindEvents();
+    applyTexts();
+    try {
+      const m = await api('sources');
+      if (m.ok && Array.isArray(m.sources)) {
+        state.marketplaces = m.sources.map((s) => ({
+          code: s.source,
+          name: s.name,
+          category: srcCategory(s.source),
+        }));
+      }
+    } catch (e) { /* ignore */ }
+    renderMarketplaces();
+    loadHomeProducts();
   }
 
-  document.addEventListener('DOMContentLoaded', init);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
 })();
