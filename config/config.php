@@ -16,13 +16,10 @@ return [
         'key'      => (string) Env::get('APP_KEY', 'change-me'),
         'session'  => (string) Env::get('SESSION_NAME', 'mab_session'),
     ],
+    // Telegram integration was removed — kept here as an empty stub so callers
+    // that still read $config['telegram']['*'] (e.g. legacy tests) keep working.
     'telegram' => [
-        'token'           => (string) Env::get('BOT_TOKEN', ''),
-        'username'        => ltrim((string) Env::get('BOT_USERNAME', ''), '@'),
-        'webapp_url'      => (string) Env::get('WEBAPP_URL', ''),
-        'webhook_url'     => (string) Env::get('WEBHOOK_URL', ''),
-        'webhook_secret'  => (string) Env::get('WEBHOOK_SECRET', ''),
-        'admin_tg_ids'    => array_filter(array_map('trim', explode(',', (string) Env::get('ADMIN_TELEGRAM_IDS', '')))),
+        'token'  => '',
     ],
     'db' => (function (): array {
         $sqlitePath = (string) Env::get('DB_SQLITE_PATH', __DIR__ . '/../storage/database.sqlite');

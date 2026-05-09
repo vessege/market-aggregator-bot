@@ -36,13 +36,13 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Admin Kirish — MarketBot</title>
+  <title>Admin Kirish — MarketCompare</title>
   <link rel="stylesheet" href="assets/admin.css">
 </head>
 <body class="login-page">
   <div class="login-card">
     <div class="login-card__logo">🛒</div>
-    <h1>MarketBot Admin</h1>
+    <h1>MarketCompare Admin</h1>
     <?php if ($error): ?><div class="flash flash--error"><?= htmlspecialchars($error) ?></div><?php endif; ?>
     <form method="post">
       <?= Csrf::field() ?>

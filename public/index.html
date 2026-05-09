@@ -2,25 +2,45 @@
 <html lang="uz">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no, viewport-fit=cover">
-  <meta name="theme-color" content="#0f172a">
-  <title>MarketCompare</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b1120">
+  <title>MarketCompare — narxlarni taqqoslash</title>
   <link rel="stylesheet" href="assets/css/styles.css">
-  <script src="https://telegram.org/js/telegram-web-app.js"></script>
 </head>
 <body>
-  <header class="topbar">
-    <div class="logo">🛍 <span>MarketCompare</span></div>
-    <button class="lang-btn" id="langBtn">🌐 UZ</button>
+  <!-- Animated liquid background -->
+  <div class="liquid-bg" aria-hidden="true">
+    <span class="blob blob--a"></span>
+    <span class="blob blob--b"></span>
+    <span class="blob blob--c"></span>
+    <span class="blob blob--d"></span>
+    <span class="grain"></span>
+  </div>
+
+  <header class="topbar glass">
+    <div class="logo">
+      <span class="logo__mark">🛍</span>
+      <span class="logo__txt">MarketCompare</span>
+    </div>
+    <div class="top-actions">
+      <button class="icon-btn glass-btn" id="themeBtn" title="Tema" aria-label="Tema">🌗</button>
+      <button class="icon-btn glass-btn" id="langBtn" title="Til">🌐 <span id="langLabel">UZ</span></button>
+    </div>
   </header>
 
   <main id="app">
     <!-- Home view -->
     <section id="view-home" class="view active">
-      <div class="search-box">
-        <span class="ico">🔍</span>
-        <input type="text" id="searchInput" placeholder="Mahsulot qidirish...">
-        <button id="searchBtn">Qidirish</button>
+      <div class="hero glass">
+        <div class="hero__title" data-i18n="heroTitle">Bir qidiruv — ko‘p marketdan natija</div>
+        <div class="hero__sub" data-i18n="heroSub">Uzum, Wildberries va boshqa marketplacelar bo‘yicha narxlarni real vaqtda taqqoslang.</div>
+        <div class="search-box glass-inset">
+          <span class="ico">🔍</span>
+          <input type="text" id="searchInput" placeholder="Mahsulot qidirish...">
+          <button id="searchBtn" class="cta-btn">
+            <span data-i18n="search">Qidirish</span>
+          </button>
+        </div>
       </div>
 
       <h2 class="section-title" data-i18n="markets">Marketplacelar</h2>
@@ -28,12 +48,12 @@
 
       <h2 class="section-title" data-i18n="categories">Mashhur kategoriyalar</h2>
       <div class="cat-grid">
-        <button class="cat-card" data-q="smartfon">📱<span data-i18n="catPhone">Smartfon</span></button>
-        <button class="cat-card" data-q="laptop">💻<span data-i18n="catLaptop">Noutbuk</span></button>
-        <button class="cat-card" data-q="televizor">📺<span data-i18n="catTv">Televizor</span></button>
-        <button class="cat-card" data-q="krossovka">👟<span data-i18n="catShoes">Krossovka</span></button>
-        <button class="cat-card" data-q="soat">⌚<span data-i18n="catWatch">Soat</span></button>
-        <button class="cat-card" data-q="naushnik">🎧<span data-i18n="catHeadphones">Naushnik</span></button>
+        <button class="cat-card glass" data-q="smartfon">📱<span data-i18n="catPhone">Smartfon</span></button>
+        <button class="cat-card glass" data-q="laptop">💻<span data-i18n="catLaptop">Noutbuk</span></button>
+        <button class="cat-card glass" data-q="televizor">📺<span data-i18n="catTv">Televizor</span></button>
+        <button class="cat-card glass" data-q="krossovka">👟<span data-i18n="catShoes">Krossovka</span></button>
+        <button class="cat-card glass" data-q="soat">⌚<span data-i18n="catWatch">Soat</span></button>
+        <button class="cat-card glass" data-q="naushnik">🎧<span data-i18n="catHeadphones">Naushnik</span></button>
       </div>
 
       <h2 class="section-title" data-i18n="topProducts">Mashhur mahsulotlar</h2>
@@ -43,8 +63,8 @@
 
     <!-- Search results view -->
     <section id="view-results" class="view">
-      <div class="results-head">
-        <button class="back-btn" data-back="home">←</button>
+      <div class="results-head glass">
+        <button class="back-btn glass-btn" data-back="home" aria-label="Ortga">←</button>
         <div class="results-title" id="resultsTitle">Natijalar</div>
       </div>
 
@@ -66,11 +86,11 @@
 
     <!-- Single marketplace view -->
     <section id="view-market" class="view">
-      <div class="results-head">
-        <button class="back-btn" data-back="home">←</button>
+      <div class="results-head glass">
+        <button class="back-btn glass-btn" data-back="home" aria-label="Ortga">←</button>
         <div class="results-title" id="marketTitle">Marketplace</div>
       </div>
-      <div class="search-box small">
+      <div class="search-box glass-inset small">
         <span class="ico">🔍</span>
         <input type="text" id="marketSearchInput" placeholder="Mahsulot qidirish...">
       </div>
@@ -81,54 +101,18 @@
 
     <!-- Product detail view -->
     <section id="view-product" class="view">
-      <div class="results-head">
-        <button class="back-btn" data-back="results">←</button>
+      <div class="results-head glass">
+        <button class="back-btn glass-btn" data-back="results" aria-label="Ortga">←</button>
         <div class="results-title" data-i18n="product">Mahsulot</div>
-        <button class="fav-btn" id="favBtn" aria-label="Sevimli">🤍</button>
       </div>
       <div id="productDetail"></div>
     </section>
-
-    <!-- Favorites view -->
-    <section id="view-favs" class="view">
-      <div class="results-head">
-        <button class="back-btn" data-back="home">←</button>
-        <div class="results-title" data-i18n="favOpen">❤️ Sevimlilar</div>
-      </div>
-      <div id="favsLoading" class="loading hidden">⏳</div>
-      <div id="favsGrid" class="product-grid"></div>
-      <div id="favsEmpty" class="empty hidden">Hozircha sevimli mahsulot yo'q</div>
-    </section>
-
-    <!-- Profile view -->
-    <section id="view-profile" class="view">
-      <div class="results-head">
-        <button class="back-btn" data-back="home">←</button>
-        <div class="results-title" data-i18n="profile">👤 Profil</div>
-      </div>
-      <div class="profile-card">
-        <div class="profile-avatar" id="profileAvatar">?</div>
-        <div class="profile-info">
-          <div class="profile-name" id="profileName">Mehmon</div>
-          <div class="profile-id" id="profileId"></div>
-        </div>
-      </div>
-      <div class="profile-stats">
-        <div class="stat-card"><div class="stat-num" id="statFavs">0</div><div class="stat-label" data-i18n="favOpen">Sevimlilar</div></div>
-        <div class="stat-card"><div class="stat-num" id="statSources">0</div><div class="stat-label" data-i18n="markets">Marketlar</div></div>
-      </div>
-      <div class="menu-list">
-        <button class="menu-item" id="menuLang"><span>🌐 <span data-i18n="langTitle">Tilni tanlang</span></span><span>›</span></button>
-        <button class="menu-item" id="menuShare"><span>📤 <span data-i18n="share">Ulashish</span></span><span>›</span></button>
-        <a class="menu-item" href="../admin/" target="_blank"><span>🛠 <span data-i18n="admin">Admin panel</span></span><span>›</span></a>
-      </div>
-    </section>
   </main>
 
-  <nav class="bottom-nav">
+  <nav class="bottom-nav glass">
     <button class="nav-btn active" data-view="home"><span>🏠</span><span data-i18n="navHome">Bosh sahifa</span></button>
-    <button class="nav-btn" data-view="favs"><span>❤️</span><span data-i18n="favOpen">Sevimlilar</span></button>
-    <button class="nav-btn" data-view="profile"><span>👤</span><span data-i18n="profile">Profil</span></button>
+    <button class="nav-btn" data-view="markets-jump"><span>🏬</span><span data-i18n="markets">Marketlar</span></button>
+    <a class="nav-btn" href="../admin/" target="_blank" rel="noopener"><span>🛠</span><span data-i18n="admin">Admin</span></a>
   </nav>
 
   <div class="toast" id="toast"></div>
