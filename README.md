@@ -102,6 +102,24 @@ mkdir -p storage
 php bin/setup.php
 ```
 
+**Mavjud o'rnatma uchun migratsiya** (yangi jadvallar qo'shish, mavjud
+ma'lumotlarni saqlash):
+```bash
+php bin/migrate.php
+```
+Bu DROP qilmaydi — faqat `db/migrations/*` ichidagi yangi jadvallarni qo'shadi.
+
+### Yangi market'lar — admin paneldan
+
+Admin panelda **Marketlar** bo'limi bor (`/admin/markets.php`). Yangi
+marketplace qo'shish uchun:
+
+1. Slug (lotin), display name, search URL (`{query}`, `{limit}` placeholder'lar)
+2. HTTP method (GET/POST), headers (JSON), body template
+3. Items path (mahsulotlar massivi qaerda) va har bir maydon uchun JSON yo'l
+   (`field_id`, `field_title`, `field_price`, va h.k.)
+4. **Faol** belgilang — keyin shu manba avtomatik live search'ga qo'shiladi.
+
 ### 4. Webhook va WebApp URL
 
 Telegram WebApp `https://` bo'lishi shart. Lokalda test qilish uchun

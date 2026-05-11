@@ -2,14 +2,7 @@
 declare(strict_types=1);
 
 use MarketBot\Core\Bootstrap;
-use MarketBot\Parsers\AliexpressParser;
-use MarketBot\Parsers\HttpClient;
-use MarketBot\Parsers\OlxParser;
-use MarketBot\Parsers\OzonParser;
-use MarketBot\Parsers\ParserManager;
-use MarketBot\Parsers\UzumParser;
-use MarketBot\Parsers\WildberriesParser;
-use MarketBot\Parsers\YandexMarketParser;
+use MarketBot\Parsers\ParserRegistry;
 
 require_once dirname(__DIR__) . '/src/Core/Bootstrap.php';
 $config = Bootstrap::init();
@@ -21,22 +14,11 @@ $depth    = (int) ($opts['depth']  ?? $opts['d'] ?? 2);
 $query    = (string) ($opts['query']  ?? $opts['q'] ?? '');
 
 if ($source === null) {
-    fwrite(STDERR, "Usage: php bin/run-parser.php --source=<uzum|wildberries|olx|ozon|aliexpress|yandex_market> [--limit=30] [--depth=2] [--query=...]\n");
+    fwrite(STDERR, "Usage: php bin/run-parser.php --source=<slug> [--limit=30] [--depth=2] [--query=...]\n");
     exit(1);
 }
 
-$http = new HttpClient(
-    userAgent: $config['parser']['user_agent'],
-    timeout:   $config['parser']['timeout'],
-    delayMs:   $config['parser']['delay_ms']
-);
-$manager = new ParserManager($http);
-$manager->register(new UzumParser($http));
-$manager->register(new WildberriesParser($http));
-$manager->register(new OlxParser($http));
-$manager->register(new OzonParser($http));
-$manager->register(new AliexpressParser($http));
-$manager->register(new YandexMarketParser($http));
+$manager = ParserRegistry::build($config);
 
 echo "[" . date('H:i:s') . "] Running parser: $source (limit=$limit, depth=$depth)\n";
 

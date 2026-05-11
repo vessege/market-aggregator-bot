@@ -1,0 +1,30 @@
+-- Migration 0001: dynamic_sources table
+-- Safe to apply on existing MySQL DBs (no DROP).
+CREATE TABLE IF NOT EXISTS `dynamic_sources` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `slug` VARCHAR(64) NOT NULL,
+  `display_name` VARCHAR(128) NOT NULL,
+  `base_url` VARCHAR(255) NULL,
+  `search_url` TEXT NOT NULL,
+  `http_method` VARCHAR(8) NOT NULL DEFAULT 'GET',
+  `headers_json` TEXT NULL,
+  `body_template` TEXT NULL,
+  `items_path` VARCHAR(255) NULL,
+  `field_id` VARCHAR(255) NULL,
+  `field_title` VARCHAR(255) NULL,
+  `field_price` VARCHAR(255) NULL,
+  `field_old_price` VARCHAR(255) NULL,
+  `field_currency` VARCHAR(255) NULL,
+  `field_image` VARCHAR(255) NULL,
+  `field_url` VARCHAR(255) NULL,
+  `field_rating` VARCHAR(255) NULL,
+  `field_reviews` VARCHAR(255) NULL,
+  `field_sold` VARCHAR(255) NULL,
+  `external_url_tpl` VARCHAR(255) NULL,
+  `is_active` TINYINT(1) NOT NULL DEFAULT 1,
+  `created_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  `updated_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `uniq_slug` (`slug`),
+  KEY `idx_dyn_src_active` (`is_active`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

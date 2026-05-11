@@ -18,6 +18,18 @@ final class Bootstrap
         /** @var array<string,mixed> $config */
         $config = require $root . '/config/config.php';
 
+        // Production: hide errors from end users, but always log them.
+        if (($config['app']['env'] ?? 'production') === 'production') {
+            ini_set('display_errors', '0');
+            ini_set('display_startup_errors', '0');
+            ini_set('log_errors', '1');
+            error_reporting(E_ALL & ~E_DEPRECATED & ~E_USER_DEPRECATED);
+        } else {
+            ini_set('display_errors', '1');
+            ini_set('log_errors', '1');
+            error_reporting(E_ALL);
+        }
+
         Logger::init((string) $config['paths']['logs']);
         Database::init($config['db']);
 

@@ -1,0 +1,73 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  lint:
+    name: PHP Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: pdo, pdo_mysql, pdo_sqlite, curl, mbstring, json, gd
+
+      - name: Run PHP syntax check on every .php file
+        shell: bash
+        run: |
+          set -e
+          fail=0
+          while IFS= read -r -d '' file; do
+            if ! php -l "$file" > /dev/null 2>&1; then
+              echo "::error file=$file::syntax error"
+              php -l "$file" || true
+              fail=1
+            fi
+          done < <(find . -path ./vendor -prune -o -path ./storage -prune -o -name '*.php' -print0)
+          exit "$fail"
+
+  smoke:
+    name: Smoke (SQLite setup + parser dry-run)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up PHP
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.1'
+          extensions: pdo, pdo_sqlite, curl, mbstring, json, gd
+
+      - name: Prepare .env (SQLite)
+        run: |
+          cp .env.example .env
+          sed -i 's|^DB_DRIVER=.*|DB_DRIVER=sqlite|' .env
+
+      - name: Run setup (creates schema + admin)
+        run: php bin/setup.php --confirm=YES_DESTROY
+
+      - name: Verify schema
+        run: |
+          php -r "
+            require 'src/Core/Bootstrap.php';
+            \MarketBot\Core\Bootstrap::init();
+            \$pdo = \MarketBot\Core\Database::pdo();
+            \$tables = \$pdo->query(\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name\")->fetchAll(PDO::FETCH_COLUMN);
+            \$expected = ['admins','categories','dynamic_sources','parser_runs','products','schema_migrations','settings'];
+            sort(\$tables);
+            foreach (\$expected as \$t) {
+              if (!in_array(\$t, \$tables, true)) { fwrite(STDERR, \"missing table: \$t\n\"); exit(1); }
+            }
+            \$forbidden = ['users','cart_items','subscription_channels','broadcasts','broadcast_recipients','favorites'];
+            foreach (\$forbidden as \$t) {
+              if (in_array(\$t, \$tables, true)) { fwrite(STDERR, \"legacy table still present: \$t\n\"); exit(1); }
+            }
+            echo \"Schema OK (\".count(\$tables).\" tables).\n\";
+          "

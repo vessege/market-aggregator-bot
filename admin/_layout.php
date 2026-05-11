@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use MarketBot\Core\Auth;
+use MarketBot\Core\Csrf;
 
 if (!isset($pageTitle)) $pageTitle = 'Admin';
 $activeMenu = $activeMenu ?? '';
@@ -18,18 +19,19 @@ $user = Auth::user();
 <body>
 <div class="layout">
   <aside class="sidebar">
-    <div class="sidebar__brand">🛒 MarketBot</div>
+    <div class="sidebar__brand">🛒 MarketCompare</div>
     <nav class="sidebar__nav">
       <a href="index.php"      class="<?= $activeMenu === 'dashboard' ? 'is-active' : '' ?>">📊 Dashboard</a>
       <a href="parsers.php"    class="<?= $activeMenu === 'parsers'   ? 'is-active' : '' ?>">🔄 Parserlar</a>
+      <a href="markets.php"    class="<?= $activeMenu === 'markets'   ? 'is-active' : '' ?>">🏬 Marketlar</a>
       <a href="products.php"   class="<?= $activeMenu === 'products'  ? 'is-active' : '' ?>">📦 Mahsulotlar</a>
-      <a href="broadcast.php"  class="<?= $activeMenu === 'broadcast' ? 'is-active' : '' ?>">📣 Xabar yuborish</a>
-      <a href="channels.php"   class="<?= $activeMenu === 'channels'  ? 'is-active' : '' ?>">📌 Majburiy obuna</a>
-      <a href="users.php"      class="<?= $activeMenu === 'users'     ? 'is-active' : '' ?>">👥 Foydalanuvchilar</a>
     </nav>
     <div class="sidebar__footer">
       <span><?= htmlspecialchars((string) ($user['username'] ?? '')) ?></span>
-      <a href="logout.php" class="link-danger">Chiqish</a>
+      <form method="post" action="logout.php" class="logout-form">
+        <?= Csrf::field() ?>
+        <button type="submit" class="link-danger">Chiqish</button>
+      </form>
     </div>
   </aside>
   <main class="main">
