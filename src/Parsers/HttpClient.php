@@ -9,6 +9,10 @@ final class HttpClient
         private string $userAgent = 'Mozilla/5.0',
         private int $timeout = 20,
         private int $delayMs = 0,
+        /** Number of retries on transient failure (5xx / network / 429). */
+        private int $retries = 2,
+        /** Initial backoff in ms; doubled on each attempt (capped). */
+        private int $backoffMs = 400,
     ) {}
 
     /**
@@ -53,6 +57,34 @@ final class HttpClient
         if ($this->delayMs > 0) {
             usleep($this->delayMs * 1000);
         }
+
+        $attempts = max(1, $this->retries + 1);
+        $last = ['ok' => false, 'status' => 0, 'body' => '', 'error' => 'no attempts'];
+        for ($i = 0; $i < $attempts; $i++) {
+            $last = $this->doRequest($method, $url, $body, $headers);
+            // Retry on transient failures only. 4xx (except 429) usually means
+            // a bug on our side and won't fix itself by repeating the call.
+            $retryable = !$last['ok'] && (
+                $last['status'] === 0
+                || $last['status'] === 429
+                || $last['status'] >= 500
+            );
+            if (!$retryable || $i === $attempts - 1) {
+                return $last;
+            }
+            // Exponential backoff with full jitter, capped at 5s.
+            $sleep = min(5000, (int) ($this->backoffMs * (2 ** $i)));
+            usleep(random_int(0, $sleep) * 1000);
+        }
+        return $last;
+    }
+
+    /**
+     * @param array<string,string> $headers
+     * @return array{ok:bool, status:int, body:string, error:?string}
+     */
+    private function doRequest(string $method, string $url, mixed $body, array $headers): array
+    {
         $ch = curl_init($url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);

@@ -41,6 +41,8 @@ return [
         'user_agent' => (string) Env::get('PARSER_USER_AGENT', 'Mozilla/5.0'),
         'delay_ms'   => (int)    Env::get('PARSER_REQUEST_DELAY_MS', 800),
         'timeout'    => (int)    Env::get('PARSER_TIMEOUT', 20),
+        'retries'    => (int)    Env::get('PARSER_RETRIES', 2),
+        'backoff_ms' => (int)    Env::get('PARSER_BACKOFF_MS', 400),
     ],
     'paths' => [
         'root'             => realpath(__DIR__ . '/..'),

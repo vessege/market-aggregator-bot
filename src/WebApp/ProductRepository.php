@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace MarketBot\WebApp;
 
+use MarketBot\Core\CurrencyConverter;
 use MarketBot\Core\Database;
 use PDO;
 
@@ -127,7 +128,10 @@ final class ProductRepository
             $row['synced_at_human'] = self::humanTimeDiff($row['updated_at']);
         }
 
-        return $row;
+        // Convert non-UZS prices to UZS on the way out, so the frontend
+        // never has to know about FX rates. Original price + currency are
+        // kept in price_original / currency_original.
+        return CurrencyConverter::decorateRow($row);
     }
 
     private static function humanTimeDiff(string $datetime): string

@@ -21,6 +21,8 @@ final class ParserRegistry
             userAgent: (string) ($config['parser']['user_agent'] ?? 'Mozilla/5.0'),
             timeout:   (int)    ($config['parser']['timeout']    ?? 20),
             delayMs:   (int)    ($config['parser']['delay_ms']   ?? 0),
+            retries:   (int)    ($config['parser']['retries']    ?? 2),
+            backoffMs: (int)    ($config['parser']['backoff_ms'] ?? 400),
         );
 
         $manager = new ParserManager($http);
