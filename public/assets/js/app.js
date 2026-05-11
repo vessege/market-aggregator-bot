@@ -20,7 +20,7 @@
       similar: 'Boshqa mahsulotlar', synced: 'Yangilangan',
       markets: 'Marketplacelar', categories: 'Mashhur kategoriyalar',
       topProducts: 'Mashhur mahsulotlar', product: 'Mahsulot',
-      navHome: 'Bosh sahifa', admin: 'Admin',
+      navHome: 'Bosh sahifa', admin: 'Admin', more: 'taklif',
       local: '🇺🇿 Mahalliy', intl: '🌍 Xalqaro',
       catPhone: 'Smartfon', catLaptop: 'Noutbuk', catTv: 'Televizor',
       catShoes: 'Krossovka', catWatch: 'Soat', catHeadphones: 'Naushnik',
@@ -36,7 +36,7 @@
       similar: 'Похожие товары', synced: 'Обновлено',
       markets: 'Маркетплейсы', categories: 'Категории',
       topProducts: 'Популярные товары', product: 'Товар',
-      navHome: 'Главная', admin: 'Админ',
+      navHome: 'Главная', admin: 'Админ', more: 'предлож.',
       local: '🇺🇿 Локальные', intl: '🌍 Международные',
       catPhone: 'Смартфон', catLaptop: 'Ноутбук', catTv: 'Телевизор',
       catShoes: 'Кроссовки', catWatch: 'Часы', catHeadphones: 'Наушники',
@@ -52,7 +52,7 @@
       similar: 'More products', synced: 'Updated',
       markets: 'Marketplaces', categories: 'Categories',
       topProducts: 'Top products', product: 'Product',
-      navHome: 'Home', admin: 'Admin',
+      navHome: 'Home', admin: 'Admin', more: 'offers',
       local: '🇺🇿 Local', intl: '🌍 International',
       catPhone: 'Phone', catLaptop: 'Laptop', catTv: 'TV',
       catShoes: 'Sneakers', catWatch: 'Watch', catHeadphones: 'Headphones',
@@ -155,6 +155,11 @@
   }
 
   // ---------- API ----------
+  // In-flight request token so we can ignore stale responses (typing fast).
+  let _apiSeq = 0;
+
+  function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
   async function api(action, opts) {
     opts = opts || {};
     const url = new URL(API_BASE, window.location.href);
@@ -167,15 +172,62 @@
     }
     const headers = { Accept: 'application/json' };
     if (opts.body) headers['Content-Type'] = 'application/json';
-    const res = await fetch(url.toString(), {
-      method: opts.method || 'GET',
-      headers: headers,
-      body: opts.body ? JSON.stringify(opts.body) : undefined,
-    });
-    let json;
-    try { json = await res.json(); }
-    catch (e) { return { ok: false, error: 'invalid json' }; }
-    return json;
+
+    // Retry transient failures (network down, 5xx, 429) with exp backoff +
+    // jitter. Keep total wait bounded so a flaky upstream doesn't hang the UI.
+    const maxAttempts = (opts.retries == null ? 2 : opts.retries) + 1;
+    let lastErr;
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      try {
+        const res = await fetch(url.toString(), {
+          method: opts.method || 'GET',
+          headers: headers,
+          body: opts.body ? JSON.stringify(opts.body) : undefined,
+          signal: opts.signal,
+        });
+        if (res.status === 429 || res.status >= 500) {
+          lastErr = { ok: false, status: res.status, error: 'transient' };
+          if (attempt === maxAttempts - 1) return lastErr;
+          await sleep(Math.min(2500, 300 * Math.pow(2, attempt)) * Math.random());
+          continue;
+        }
+        let json;
+        try { json = await res.json(); }
+        catch (e) { return { ok: false, status: res.status, error: 'invalid json' }; }
+        return json;
+      } catch (err) {
+        if (err && err.name === 'AbortError') {
+          return { ok: false, aborted: true };
+        }
+        lastErr = { ok: false, error: String(err && err.message || err) };
+        if (attempt === maxAttempts - 1) return lastErr;
+        await sleep(Math.min(2500, 300 * Math.pow(2, attempt)) * Math.random());
+      }
+    }
+    return lastErr || { ok: false, error: 'unknown' };
+  }
+
+  // Render N skeleton cards into a container while waiting on the API.
+  function showSkeletons(container, count) {
+    if (!container) return;
+    container.classList.add('skeleton-grid');
+    container.innerHTML = '';
+    for (let i = 0; i < count; i++) {
+      const c = document.createElement('div');
+      c.className = 'skeleton-card';
+      c.innerHTML = `
+        <div class="sk-img"></div>
+        <div class="sk-body">
+          <div class="sk-line"></div>
+          <div class="sk-line short"></div>
+          <div class="sk-line price"></div>
+        </div>`;
+      container.appendChild(c);
+    }
+  }
+
+  function clearSkeletons(container) {
+    if (container) container.classList.remove('skeleton-grid');
   }
 
   // ---------- Backend → UI normalization ----------
@@ -193,14 +245,20 @@
   function normalize(p) {
     if (!p) return null;
     const img = (p.images && p.images[0]) || p.image_url || '';
+    const price = Number(p.price_uzs != null ? p.price_uzs : p.price || 0);
     return {
       id: Number(p.id),
       source: p.source || '',
       source_name: srcLabel(p.source || ''),
       title: p.title || '',
-      price: Number(p.price || 0),
-      old_price: p.old_price ? Number(p.old_price) : null,
-      currency: p.currency || 'UZS',
+      price: price,
+      old_price: p.old_price ? Number(p.old_price_uzs != null ? p.old_price_uzs : p.old_price) : null,
+      currency: 'UZS',
+      // Tracks whether the price displayed is a converted one (RUB→UZS etc.)
+      // — used to render a small "FX" badge next to the number.
+      fxApplied: !!p.fx_applied,
+      priceOriginal: p.price_original != null ? Number(p.price_original) : price,
+      currencyOriginal: p.currency_original || p.currency || 'UZS',
       url: p.external_url || p.url || '#',
       image: img,
       rating: p.rating ? Number(p.rating) : 0,
@@ -209,6 +267,7 @@
       seller: p.seller || '',
       synced: p.synced_at_human || '',
       updated_at: p.updated_at || '',
+      offers: Array.isArray(p.offers) ? p.offers : [],
     };
   }
 
@@ -240,8 +299,12 @@
     const score = p.rating ? Math.round(p.rating * 20) : 0;
     const oldP = p.old_price && p.old_price > p.price
       ? `<span class="old-price">${fmtPrice(p.old_price, p.currency)}</span>` : '';
+    const fxBadge = p.fxApplied
+      ? `<span class="price-fx-note" title="${escapeHtml(p.currencyOriginal + ' → UZS')}">FX</span>`
+      : '';
     const ratingTxt = p.rating ? '⭐ ' + p.rating.toFixed(1) : '';
     const soldTxt = p.sold ? '🛒 ' + p.sold : '';
+    const moreTxt = p.offers && p.offers.length ? `+${p.offers.length} ${t('more') || ''}`.trim() : '';
     const imgTag = p.image
       ? `<img loading="lazy" src="${escapeHtml(p.image)}" alt="" onerror="this.style.display='none'">`
       : '';
@@ -253,10 +316,10 @@
       </div>
       <div class="body">
         <div class="title">${escapeHtml(p.title)}</div>
-        <div class="price">${fmtPrice(p.price, p.currency)}${oldP}</div>
+        <div class="price">${fmtPrice(p.price, p.currency)}${fxBadge}${oldP}</div>
         <div class="meta">
           <span>${ratingTxt}</span>
-          <span>${soldTxt}</span>
+          <span>${soldTxt || moreTxt}</span>
         </div>
       </div>`;
     card.onclick = () => openProduct(p);
@@ -328,19 +391,34 @@
     });
   }
 
+  // Abort any in-flight search so we don't race responses when typing fast.
+  let _searchAbort = null;
+
   async function performSearch(query, source) {
     const q = (query || '').trim();
     state.lastQuery = q;
     state.lastSource = source || '';
     showView('results');
     $('#resultsTitle').textContent = q ? `🔍 "${q}"` : t('topProducts');
-    $('#resultsLoading').classList.remove('hidden');
+    $('#resultsLoading').classList.add('hidden');
     $('#resultsEmpty').classList.add('hidden');
-    $('#resultsGrid').innerHTML = '';
+
+    if (_searchAbort) _searchAbort.abort();
+    _searchAbort = new AbortController();
+    const seq = ++_apiSeq;
+
+    const grid = $('#resultsGrid');
+    showSkeletons(grid, 8);
+
     const data = await api('products', {
       params: { q: q, source: source || '', sort: state.sortMode, limit: 40 },
+      signal: _searchAbort.signal,
     });
-    $('#resultsLoading').classList.add('hidden');
+
+    if (seq !== _apiSeq || data.aborted) return; // a newer search superseded us
+    clearSkeletons(grid);
+    grid.innerHTML = '';
+
     const list = (data.ok ? (data.products || []) : []).map(normalize).filter(Boolean);
     state.products = list;
     state.sourceFilter = '';
@@ -357,19 +435,21 @@
   }
 
   async function runMarketSearch(source, query) {
-    $('#marketLoading').classList.remove('hidden');
+    $('#marketLoading').classList.add('hidden');
     $('#marketEmpty').classList.add('hidden');
-    $('#marketGridResults').innerHTML = '';
+    const grid = $('#marketGridResults');
+    showSkeletons(grid, 8);
     const data = await api('products', {
       params: { source: source || '', q: query || '', limit: 40 },
     });
-    $('#marketLoading').classList.add('hidden');
+    clearSkeletons(grid);
+    grid.innerHTML = '';
     const list = (data.ok ? (data.products || []) : []).map(normalize).filter(Boolean);
     if (!list.length) {
       $('#marketEmpty').classList.remove('hidden');
       return;
     }
-    list.forEach((p) => $('#marketGridResults').appendChild(productCard(p)));
+    list.forEach((p) => grid.appendChild(productCard(p)));
   }
 
   async function openProduct(p) {
@@ -416,19 +496,33 @@
   async function loadHomeProducts() {
     const grid = $('#homeGrid');
     if (!grid) return;
-    grid.innerHTML = '';
-    $('#resultsLoadingHome').classList.remove('hidden');
-    const data = await api('products', { params: { limit: 12, sort: 'popular' } });
     $('#resultsLoadingHome').classList.add('hidden');
+    showSkeletons(grid, 6);
+    const data = await api('products', { params: { limit: 12, sort: 'popular' } });
+    clearSkeletons(grid);
+    grid.innerHTML = '';
     const list = (data.ok ? (data.products || []) : []).map(normalize).filter(Boolean);
     list.forEach((p) => grid.appendChild(productCard(p)));
     state.products = list;
   }
 
+  function debounce(fn, delay) {
+    let t;
+    return function (...args) {
+      clearTimeout(t);
+      t = setTimeout(() => fn.apply(this, args), delay);
+    };
+  }
+
   // ---------- Events ----------
   function bindEvents() {
     $('#searchBtn').onclick = () => performSearch($('#searchInput').value, '');
+    const debouncedSearch = debounce((v) => {
+      if (v.trim().length >= 2) performSearch(v, '');
+    }, 350);
+    $('#searchInput').addEventListener('input', (e) => debouncedSearch(e.target.value));
     $('#searchInput').addEventListener('keydown', (e) => {
+      // Enter triggers an immediate search (skipping the debounce delay).
       if (e.key === 'Enter') performSearch(e.target.value, '');
     });
     $$('.cat-card').forEach((b) => {
@@ -467,12 +561,21 @@
     $('#langBtn').onclick = showLangPicker;
     $('#themeBtn').onclick = toggleTheme;
 
-    $('#marketSearchInput').addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        const src = e.target.dataset.source;
-        runMarketSearch(src, e.target.value);
-      }
-    });
+    const mi = $('#marketSearchInput');
+    if (mi) {
+      const debouncedMarket = debounce((src, v) => {
+        if (v.trim().length >= 2 || v.trim().length === 0) runMarketSearch(src, v);
+      }, 350);
+      mi.addEventListener('input', (e) => {
+        debouncedMarket(e.target.dataset.source, e.target.value);
+      });
+      mi.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          const src = e.target.dataset.source;
+          runMarketSearch(src, e.target.value);
+        }
+      });
+    }
   }
 
   function showLangPicker() {

@@ -2,7 +2,9 @@
 declare(strict_types=1);
 
 use MarketBot\Core\Bootstrap;
+use MarketBot\Core\Env;
 use MarketBot\Core\Logger;
+use MarketBot\Core\RateLimiter;
 use MarketBot\Parsers\ParserRegistry;
 use MarketBot\WebApp\ProductRepository;
 
@@ -14,6 +16,7 @@ header('Cache-Control: no-store');
 header('Access-Control-Allow-Origin: *');
 header('Access-Control-Allow-Headers: Content-Type');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('X-Content-Type-Options: nosniff');
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
     http_response_code(204);
@@ -45,6 +48,16 @@ function ok(array $data = []): never
 
 $path = (string) ($_GET['action'] ?? '');
 $products = new ProductRepository();
+$ip = RateLimiter::clientIp();
+
+// Per-IP rate limits. Tunable via .env (default 60 rpm for cheap reads,
+// 10 rpm for live search which hits external APIs).
+$readLimit = (int) Env::get('RATE_LIMIT_API_RPM', 60);
+$liveLimit = (int) Env::get('RATE_LIMIT_LIVE_RPM', 10);
+if (!RateLimiter::allow('api:' . $path, $ip, $readLimit, 60)) {
+    header('Retry-After: 30');
+    fail(429, 'rate_limited');
+}
 
 try {
     switch ($path) {
@@ -71,23 +84,46 @@ try {
             $liveTriggered = false;
             $liveStats = null;
             if ($liveAllowed && $q !== '' && count($items) < $liveThreshold) {
-                try {
-                    $manager = ParserRegistry::build($config);
-                    $sources = null;
-                    if (!empty($filter['source'])) {
-                        $sources = [(string) $filter['source']];
+                // Live search has its own (stricter) rate limit, since it
+                // makes outbound HTTP calls to upstream marketplaces.
+                if (!RateLimiter::allow('api:live', $ip, $liveLimit, 60)) {
+                    // Don't 429 here — just skip the live hop and serve what
+                    // we already have locally. The user still gets a useful
+                    // response, no degradation.
+                    $liveStats = ['skipped' => 'rate_limited'];
+                } else {
+                    try {
+                        $manager = ParserRegistry::build($config);
+                        $sources = null;
+                        if (!empty($filter['source'])) {
+                            $sources = [(string) $filter['source']];
+                        }
+                        $liveStats = $manager->searchAll($q, $sources, 20);
+                        $liveTriggered = true;
+                        if (($liveStats['total'] ?? 0) > 0) {
+                            $items = $products->search($filter);
+                        }
+                    } catch (\Throwable $e) {
+                        Logger::error('api', 'live search failed', [
+                            'q' => $q, 'err' => $e->getMessage(),
+                        ]);
                     }
-                    $liveStats = $manager->searchAll($q, $sources, 20);
-                    $liveTriggered = true;
-                    if (($liveStats['total'] ?? 0) > 0) {
-                        $items = $products->search($filter);
-                    }
-                } catch (\Throwable $e) {
-                    Logger::error('api', 'live search failed', [
-                        'q' => $q, 'err' => $e->getMessage(),
-                    ]);
                 }
             }
+
+            // Cross-source dedupe: when several marketplaces return the same
+            // product (same title), keep the cheapest as the "primary" and
+            // attach the others under offers[] so the frontend can show "also
+            // available on X for Y so'm" without duplicate cards in the grid.
+            $items = dedupe_by_title($items);
+
+            // Apply [min,max] price filter in PHP after FX conversion — the
+            // SQL-level filter ran against source prices which may be in RUB.
+            $items = apply_uzs_price_window(
+                $items,
+                $filter['min_price'] !== null ? (float) $filter['min_price'] : null,
+                $filter['max_price'] !== null ? (float) $filter['max_price'] : null,
+            );
 
             $resp = ['products' => $items];
             if ($liveTriggered) {
@@ -97,6 +133,8 @@ try {
                     'updated'   => (int) ($liveStats['updated'] ?? 0),
                     'by_source' => $liveStats['by_source'] ?? [],
                 ];
+            } elseif (isset($liveStats['skipped'])) {
+                $resp['live'] = ['skipped' => $liveStats['skipped']];
             }
             ok($resp);
         }
@@ -113,7 +151,7 @@ try {
 
             // On-demand "live" refresh if older than 5 minutes.
             $stale = isset($p['updated_at']) && (time() - strtotime((string) $p['updated_at']) > 300);
-            if ($stale) {
+            if ($stale && RateLimiter::allow('api:live', $ip, $liveLimit, 60)) {
                 try {
                     $manager = ParserRegistry::build($config);
                     if (in_array($p['source'], array_keys($manager->all()), true)) {
@@ -142,4 +180,76 @@ try {
 } catch (\Throwable $e) {
     Logger::error('api', 'unhandled', ['err' => $e->getMessage(), 'path' => $path]);
     fail(500, 'server error');
+}
+
+/**
+ * Group products by a normalized title so cross-source duplicates collapse
+ * into one card with the other offers attached. The cheapest offer wins the
+ * top slot — that's what users want to see first.
+ *
+ * @param array<int,array<string,mixed>> $items
+ * @return array<int,array<string,mixed>>
+ */
+function dedupe_by_title(array $items): array
+{
+    if (count($items) < 2) {
+        return $items;
+    }
+    $groups = [];
+    foreach ($items as $row) {
+        $title = (string) ($row['title'] ?? '');
+        $key   = normalize_title($title);
+        if ($key === '') {
+            // unique key per row so things without title don't collide
+            $key = 'row:' . (string) ($row['id'] ?? spl_object_hash((object) $row));
+        }
+        $groups[$key][] = $row;
+    }
+    $out = [];
+    foreach ($groups as $group) {
+        if (count($group) === 1) {
+            $out[] = $group[0];
+            continue;
+        }
+        usort($group, fn($a, $b) => ((float) ($a['price'] ?? 0)) <=> ((float) ($b['price'] ?? 0)));
+        $primary = $group[0];
+        $offers  = [];
+        for ($i = 1; $i < count($group); $i++) {
+            $offers[] = [
+                'id'           => $group[$i]['id']           ?? null,
+                'source'       => $group[$i]['source']       ?? '',
+                'price'        => $group[$i]['price']        ?? 0,
+                'currency'     => $group[$i]['currency']     ?? 'UZS',
+                'external_url' => $group[$i]['external_url'] ?? null,
+            ];
+        }
+        $primary['offers'] = $offers;
+        $out[] = $primary;
+    }
+    return $out;
+}
+
+function normalize_title(string $s): string
+{
+    $s = mb_strtolower($s);
+    $s = preg_replace('/[\p{P}\p{S}]+/u', ' ', $s) ?? $s;
+    $s = preg_replace('/\s+/u', ' ', $s) ?? $s;
+    return trim($s);
+}
+
+/**
+ * @param array<int,array<string,mixed>> $items
+ * @return array<int,array<string,mixed>>
+ */
+function apply_uzs_price_window(array $items, ?float $min, ?float $max): array
+{
+    if ($min === null && $max === null) {
+        return $items;
+    }
+    return array_values(array_filter($items, function ($row) use ($min, $max) {
+        $price = (float) ($row['price_uzs'] ?? $row['price'] ?? 0);
+        if ($min !== null && $price < $min) return false;
+        if ($max !== null && $price > $max) return false;
+        return true;
+    }));
 }
