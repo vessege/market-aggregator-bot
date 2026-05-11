@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use MarketBot\Core\Auth;
+use MarketBot\Core\Csrf;
 
 if (!isset($pageTitle)) $pageTitle = 'Admin';
 $activeMenu = $activeMenu ?? '';
@@ -27,7 +28,10 @@ $user = Auth::user();
     </nav>
     <div class="sidebar__footer">
       <span><?= htmlspecialchars((string) ($user['username'] ?? '')) ?></span>
-      <a href="logout.php" class="link-danger">Chiqish</a>
+      <form method="post" action="logout.php" class="logout-form">
+        <?= Csrf::field() ?>
+        <button type="submit" class="link-danger">Chiqish</button>
+      </form>
     </div>
   </aside>
   <main class="main">

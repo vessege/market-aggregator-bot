@@ -3,8 +3,17 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <meta name="theme-color" content="#0b1120">
+  <meta name="theme-color" content="#0b1120" media="(prefers-color-scheme: dark)">
+  <meta name="theme-color" content="#f4f7ff" media="(prefers-color-scheme: light)">
   <title>MarketCompare — narxlarni taqqoslash</title>
+  <meta name="description" content="Uzum, Wildberries va boshqa marketplacelar bo'yicha narxlarni real vaqtda taqqoslang. Bir qidiruv — ko'p natija.">
+  <meta property="og:title" content="MarketCompare — narxlarni taqqoslash">
+  <meta property="og:description" content="Uzum, Wildberries va boshqa marketplacelar bo'yicha narxlarni real vaqtda taqqoslang.">
+  <meta property="og:type" content="website">
+  <meta property="og:image" content="assets/og-cover.svg">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+  <link rel="apple-touch-icon" href="assets/favicon.svg">
   <link rel="stylesheet" href="assets/css/styles.css">
 </head>
 <body>
@@ -112,7 +121,6 @@
   <nav class="bottom-nav glass">
     <button class="nav-btn active" data-view="home"><span>🏠</span><span data-i18n="navHome">Bosh sahifa</span></button>
     <button class="nav-btn" data-view="markets-jump"><span>🏬</span><span data-i18n="markets">Marketlar</span></button>
-    <a class="nav-btn" href="../admin/" target="_blank" rel="noopener"><span>🛠</span><span data-i18n="admin">Admin</span></a>
   </nav>
 
   <div class="toast" id="toast"></div>

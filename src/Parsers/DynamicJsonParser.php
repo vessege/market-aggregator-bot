@@ -125,9 +125,9 @@ final class DynamicJsonParser extends BaseParser
             return null;
         }
 
-        $price    = (float) $this->getString($item, (string) ($this->config['field_price']     ?? ''));
+        $price    = $this->toFloat($this->getString($item, (string) ($this->config['field_price']     ?? '')));
         $oldRaw   = $this->getString($item, (string) ($this->config['field_old_price']         ?? ''));
-        $oldPrice = $oldRaw !== '' ? (float) $oldRaw : null;
+        $oldPrice = $oldRaw !== '' ? $this->toFloat($oldRaw) : null;
         $currency = $this->getString($item, (string) ($this->config['field_currency']         ?? '')) ?: 'UZS';
         $image    = $this->getString($item, (string) ($this->config['field_image']            ?? ''));
         $url      = $this->getString($item, (string) ($this->config['field_url']              ?? ''));
@@ -187,6 +187,43 @@ final class DynamicJsonParser extends BaseParser
             return null;
         }
         return $cur;
+    }
+
+    /**
+     * Parse a possibly-localised numeric string into a float.
+     * Handles "123 456,78 so'm", "1,234.56", "1.234,56", "$199.99" etc.
+     */
+    private function toFloat(string $raw): float
+    {
+        $s = trim($raw);
+        if ($s === '') {
+            return 0.0;
+        }
+        // Strip currency symbols/letters/spaces, keep digits, comma, dot, minus.
+        $s = preg_replace('/[^\d.,\-]/', '', $s) ?? '';
+        if ($s === '' || $s === '-' || $s === '.' || $s === ',') {
+            return 0.0;
+        }
+        $hasComma = strpos($s, ',') !== false;
+        $hasDot   = strpos($s, '.') !== false;
+        if ($hasComma && $hasDot) {
+            // The right-most separator is the decimal mark.
+            if (strrpos($s, ',') > strrpos($s, '.')) {
+                $s = str_replace('.', '', $s);
+                $s = str_replace(',', '.', $s);
+            } else {
+                $s = str_replace(',', '', $s);
+            }
+        } elseif ($hasComma) {
+            // Treat comma as decimal point if it has 1-2 digits after it,
+            // otherwise as a thousands separator.
+            if (preg_match('/,\d{1,2}$/', $s)) {
+                $s = str_replace(',', '.', $s);
+            } else {
+                $s = str_replace(',', '', $s);
+            }
+        }
+        return (float) $s;
     }
 
     /** @param array<string,mixed> $item */

@@ -1,31 +1,13 @@
--- Market Aggregator Bot — SQLite schema (development / fallback)
+-- MarketCompare — SQLite schema (development / fallback)
 PRAGMA foreign_keys = ON;
 
-DROP TABLE IF EXISTS broadcast_recipients;
-DROP TABLE IF EXISTS broadcasts;
-DROP TABLE IF EXISTS subscription_channels;
-DROP TABLE IF EXISTS favorites;
-DROP TABLE IF EXISTS cart_items;
 DROP TABLE IF EXISTS parser_runs;
 DROP TABLE IF EXISTS dynamic_sources;
 DROP TABLE IF EXISTS products;
 DROP TABLE IF EXISTS categories;
-DROP TABLE IF EXISTS users;
 DROP TABLE IF EXISTS admins;
 DROP TABLE IF EXISTS settings;
-
-CREATE TABLE users (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  tg_id         INTEGER NOT NULL UNIQUE,
-  username      TEXT,
-  first_name    TEXT,
-  last_name     TEXT,
-  language_code TEXT,
-  is_blocked    INTEGER NOT NULL DEFAULT 0,
-  created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  last_seen_at  DATETIME
-);
-CREATE INDEX idx_users_username ON users(username);
+DROP TABLE IF EXISTS schema_migrations;
 
 CREATE TABLE admins (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,65 +55,7 @@ CREATE TABLE products (
 CREATE INDEX idx_products_category ON products(category_id);
 CREATE INDEX idx_products_active_price ON products(is_active, price);
 CREATE INDEX idx_products_rating ON products(rating);
-
-CREATE TABLE favorites (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id    INTEGER NOT NULL,
-  product_id INTEGER NOT NULL,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(user_id, product_id)
-);
-CREATE INDEX idx_fav_user ON favorites(user_id);
-CREATE INDEX idx_fav_product ON favorites(product_id);
-
-CREATE TABLE cart_items (
-  id         INTEGER PRIMARY KEY AUTOINCREMENT,
-  user_id    INTEGER NOT NULL,
-  product_id INTEGER NOT NULL,
-  quantity   INTEGER NOT NULL DEFAULT 1,
-  created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  UNIQUE(user_id, product_id)
-);
-CREATE INDEX idx_cart_user ON cart_items(user_id);
-
-CREATE TABLE subscription_channels (
-  id          INTEGER PRIMARY KEY AUTOINCREMENT,
-  chat_id     TEXT NOT NULL UNIQUE,
-  title       TEXT,
-  invite_link TEXT,
-  is_active   INTEGER NOT NULL DEFAULT 1,
-  position    INTEGER NOT NULL DEFAULT 0,
-  created_at  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-
-CREATE TABLE broadcasts (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  admin_id      INTEGER,
-  type          TEXT NOT NULL DEFAULT 'text',
-  text          TEXT,
-  media_path    TEXT,
-  parse_mode    TEXT,
-  buttons_json  TEXT,
-  status        TEXT NOT NULL DEFAULT 'pending',
-  total_count   INTEGER NOT NULL DEFAULT 0,
-  sent_count    INTEGER NOT NULL DEFAULT 0,
-  failed_count  INTEGER NOT NULL DEFAULT 0,
-  started_at    DATETIME,
-  finished_at   DATETIME,
-  created_at    DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-);
-CREATE INDEX idx_broadcasts_status ON broadcasts(status);
-
-CREATE TABLE broadcast_recipients (
-  id            INTEGER PRIMARY KEY AUTOINCREMENT,
-  broadcast_id  INTEGER NOT NULL,
-  user_id       INTEGER NOT NULL,
-  status        TEXT NOT NULL DEFAULT 'pending',
-  error         TEXT,
-  sent_at       DATETIME,
-  UNIQUE(broadcast_id, user_id)
-);
-CREATE INDEX idx_br_status ON broadcast_recipients(broadcast_id, status);
+CREATE INDEX idx_products_updated_at ON products(updated_at);
 
 CREATE TABLE parser_runs (
   id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -177,6 +101,11 @@ CREATE TABLE settings (
   key        TEXT PRIMARY KEY,
   value      TEXT,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE schema_migrations (
+  name       TEXT PRIMARY KEY,
+  applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
 INSERT INTO categories (slug, name, icon, position) VALUES

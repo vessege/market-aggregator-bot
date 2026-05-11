@@ -16,11 +16,6 @@ return [
         'key'      => (string) Env::get('APP_KEY', 'change-me'),
         'session'  => (string) Env::get('SESSION_NAME', 'mab_session'),
     ],
-    // Telegram integration was removed — kept here as an empty stub so callers
-    // that still read $config['telegram']['*'] (e.g. legacy tests) keep working.
-    'telegram' => [
-        'token'  => '',
-    ],
     'db' => (function (): array {
         $sqlitePath = (string) Env::get('DB_SQLITE_PATH', __DIR__ . '/../storage/database.sqlite');
         if ($sqlitePath !== '' && $sqlitePath[0] !== '/' && !preg_match('#^[A-Za-z]:[\\\\/]#', $sqlitePath)) {
@@ -48,10 +43,9 @@ return [
         'timeout'    => (int)    Env::get('PARSER_TIMEOUT', 20),
     ],
     'paths' => [
-        'root'              => realpath(__DIR__ . '/..'),
-        'storage'           => realpath(__DIR__ . '/..') . '/storage',
-        'uploads_broadcast' => realpath(__DIR__ . '/..') . '/storage/uploads/broadcast',
-        'uploads_products'  => realpath(__DIR__ . '/..') . '/storage/uploads/products',
-        'logs'              => realpath(__DIR__ . '/..') . '/storage/logs',
+        'root'             => realpath(__DIR__ . '/..'),
+        'storage'          => realpath(__DIR__ . '/..') . '/storage',
+        'uploads_products' => realpath(__DIR__ . '/..') . '/storage/uploads/products',
+        'logs'             => realpath(__DIR__ . '/..') . '/storage/logs',
     ],
 ];

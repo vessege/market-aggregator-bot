@@ -25,13 +25,12 @@ final class ParserRegistry
 
         $manager = new ParserManager($http);
 
-        // Built-in parsers
+        // Built-in parsers (only the ones with a real implementation).
+        // OLX, Ozon, AliExpress and YandexMarket parsers are stubs and would
+        // just return empty results — admins can re-add them as DynamicJsonParser
+        // entries with the proper API endpoint, or implement them later.
         $manager->register(new UzumParser($http));
         $manager->register(new WildberriesParser($http));
-        $manager->register(new OlxParser($http));
-        $manager->register(new OzonParser($http));
-        $manager->register(new AliexpressParser($http));
-        $manager->register(new YandexMarketParser($http));
 
         // Dynamic parsers (admin-configured)
         try {

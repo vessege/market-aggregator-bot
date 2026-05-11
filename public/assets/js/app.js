@@ -111,6 +111,19 @@
     })[c]);
   }
 
+  // Only allow http(s):// (and protocol-relative //) URLs. Anything else
+  // (javascript:, data:, vbscript:, etc.) becomes '#'. Prevents XSS via
+  // admin-configured dynamic source URLs.
+  function safeUrl(u) {
+    if (u == null) return '#';
+    const s = String(u).trim();
+    if (s === '') return '#';
+    if (/^https?:\/\//i.test(s)) return s;
+    if (s.startsWith('//')) return 'https:' + s;
+    if (s.startsWith('/') || s.startsWith('./') || s.startsWith('../')) return s;
+    return '#';
+  }
+
   function fmtPrice(amount, currency) {
     currency = (currency || 'UZS').toUpperCase();
     const n = Math.round(Number(amount) || 0);
@@ -251,8 +264,8 @@
   }
 
   function renderResults() {
-    const list = state.products.slice();
-    if (state.sourceFilter) list.filter((p) => p.source === state.sourceFilter);
+    let list = state.products.slice();
+    if (state.sourceFilter) list = list.filter((p) => p.source === state.sourceFilter);
     sortProducts(list);
     const grid = $('#resultsGrid');
     grid.innerHTML = '';
@@ -268,7 +281,7 @@
     switch (state.sortMode) {
       case 'price_asc':  list.sort((a, b) => a.price - b.price); break;
       case 'price_desc': list.sort((a, b) => b.price - a.price); break;
-      case 'rating':     list.sort((a, b) => b.reviews - a.reviews); break;
+      case 'rating':     list.sort((a, b) => (b.rating || 0) - (a.rating || 0) || b.reviews - a.reviews); break;
       case 'popular':
       default:           list.sort((a, b) => (b.rating * 20 + Math.log10(b.reviews + 1) * 5) -
                                               (a.rating * 20 + Math.log10(a.reviews + 1) * 5));
@@ -375,7 +388,7 @@
     const oldP = fresh.old_price && fresh.old_price > fresh.price
       ? `<span class="detail-old">${fmtPrice(fresh.old_price, fresh.currency)}</span>` : '';
     const compare = others.map((o) => `
-      <a class="compare-row" href="${escapeHtml(o.url)}" target="_blank" rel="noopener">
+      <a class="compare-row" href="${escapeHtml(safeUrl(o.url))}" target="_blank" rel="noopener">
         <div>
           <div class="src">${escapeHtml(o.source_name || o.source)}</div>
           <div>${escapeHtml((o.title || '').substring(0, 50))}</div>
@@ -395,7 +408,7 @@
       <div class="detail-row"><span class="label">${t('source')}</span><span class="value">${escapeHtml(fresh.source_name || fresh.source)}</span></div>
       ${fresh.rating ? `<div class="detail-row"><span class="label">${t('rating')}</span><span class="value">⭐ ${fresh.rating.toFixed(1)} (${fresh.reviews})</span></div>` : ''}
       ${fresh.seller ? `<div class="detail-row"><span class="label">${t('seller')}</span><span class="value">${escapeHtml(fresh.seller)}</span></div>` : ''}
-      <a class="detail-buy" href="${escapeHtml(fresh.url)}" target="_blank" rel="noopener">${t('open')}</a>
+      <a class="detail-buy" href="${escapeHtml(safeUrl(fresh.url))}" target="_blank" rel="noopener">${t('open')}</a>
       ${others.length ? `<h3 class="section-title">${t('similar')}</h3><div class="compare-list">${compare}</div>` : ''}
     `;
   }
@@ -477,6 +490,7 @@
       if (l) {
         lang = l;
         localStorage.setItem('mc_lang', lang);
+        document.documentElement.setAttribute('lang', lang);
         const lbl = $('#langLabel');
         if (lbl) lbl.textContent = lang.toUpperCase();
         applyTexts();
@@ -509,6 +523,7 @@
   // ---------- Init ----------
   async function init() {
     applyTheme(getStoredTheme());
+    document.documentElement.setAttribute('lang', lang);
     const lbl = $('#langLabel');
     if (lbl) lbl.textContent = lang.toUpperCase();
     bindEvents();
