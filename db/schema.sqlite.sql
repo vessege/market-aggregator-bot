@@ -1,6 +1,8 @@
 -- MarketCompare — SQLite schema (development / fallback)
 PRAGMA foreign_keys = ON;
 
+DROP TABLE IF EXISTS price_alerts;
+DROP TABLE IF EXISTS price_history;
 DROP TABLE IF EXISTS parser_runs;
 DROP TABLE IF EXISTS dynamic_sources;
 DROP TABLE IF EXISTS products;
@@ -102,6 +104,30 @@ CREATE TABLE settings (
   value      TEXT,
   updated_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
+
+CREATE TABLE price_history (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id  INTEGER NOT NULL,
+  price       REAL NOT NULL,
+  currency    TEXT NOT NULL DEFAULT 'UZS',
+  captured_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_price_history_product ON price_history(product_id, captured_at);
+
+CREATE TABLE price_alerts (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  product_id   INTEGER NOT NULL,
+  email        TEXT NOT NULL,
+  target_price REAL NOT NULL,
+  currency     TEXT NOT NULL DEFAULT 'UZS',
+  status       TEXT NOT NULL DEFAULT 'active',
+  created_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  notified_at  DATETIME NULL,
+  FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE CASCADE
+);
+CREATE INDEX idx_price_alerts_product ON price_alerts(product_id, status);
+CREATE INDEX idx_price_alerts_email   ON price_alerts(email);
 
 CREATE TABLE schema_migrations (
   name       TEXT PRIMARY KEY,

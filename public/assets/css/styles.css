@@ -974,3 +974,106 @@ html[data-theme="light"] .liquid-bg .blob,
   html[data-theme="light"] .lang-modal button,
   html[data-theme="light"] .toast { background: rgba(255, 255, 255, 0.92); }
 }
+
+/* =====================================================================
+   Faza 3 — Sparkline, alerts, compare
+===================================================================== */
+.sparkline-wrap {
+  margin: 14px 0 8px;
+  padding: 12px;
+  border-radius: 12px;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  color: var(--brand-2, #7aa6ff);
+}
+.sparkline-wrap.is-min { color: #2ecc71; }
+.sparkline-meta {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 6px; font-size: 12px; color: var(--text-dim);
+}
+.sparkline-meta strong { color: var(--text); }
+.badge-min {
+  background: linear-gradient(135deg, #2ecc71, #27ae60);
+  color: #fff; padding: 3px 8px; border-radius: 999px;
+  font-size: 10px; font-weight: 700; letter-spacing: .2px;
+}
+
+.alert-box {
+  margin: 14px 0;
+  padding: 0;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 12px;
+  overflow: hidden;
+}
+.alert-box summary {
+  cursor: pointer;
+  padding: 12px 14px;
+  font-weight: 600;
+  user-select: none;
+}
+.alert-box[open] summary { border-bottom: 1px solid var(--glass-border); }
+.alert-form { padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; }
+.alert-row { display: flex; flex-direction: column; gap: 4px; font-size: 12px; color: var(--text-dim); }
+.alert-row input {
+  font-size: 14px; padding: 10px 12px;
+  background: var(--glass-bg); color: var(--text);
+  border: 1px solid var(--glass-border); border-radius: 10px;
+}
+.alert-row input:focus { outline: 2px solid var(--brand-2, #7aa6ff); outline-offset: 1px; }
+.alert-msg { font-size: 12px; min-height: 16px; }
+.alert-msg.is-ok    { color: #2ecc71; }
+.alert-msg.is-error { color: #ff6b6b; }
+
+.detail-actions {
+  display: flex; gap: 10px; align-items: center; margin: 10px 0 4px;
+}
+.btn-compare {
+  flex: 0 0 auto;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--glass-bg);
+  color: var(--text);
+  border: 1px solid var(--glass-border);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background .2s ease, border-color .2s ease;
+}
+.btn-compare:hover { background: var(--glass-bg-strong, rgba(255,255,255,0.08)); }
+
+.compare-bar {
+  position: fixed; left: 50%; transform: translateX(-50%) translateY(120%);
+  bottom: 80px; z-index: 30;
+  padding: 10px 14px; border-radius: 999px;
+  display: flex; align-items: center; gap: 10px;
+  transition: transform .25s ease;
+  font-weight: 600;
+}
+.compare-bar.show { transform: translateX(-50%) translateY(0); }
+.compare-bar__label { display: inline-flex; align-items: center; gap: 4px; }
+.compare-bar .btn-primary { padding: 8px 14px; font-size: 13px; }
+.compare-bar .link-danger { background: none; border: 0; cursor: pointer; color: #ff6b6b; }
+
+.compare-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 14px;
+}
+.compare-cell {
+  background: var(--glass-bg); border: 1px solid var(--glass-border);
+  border-radius: 16px; padding: 12px;
+  display: flex; flex-direction: column; gap: 8px;
+  transition: transform .2s ease, border-color .2s ease;
+}
+.compare-cell.is-cheapest { border-color: #2ecc71; box-shadow: 0 0 0 1px rgba(46, 204, 113, .35); }
+.compare-cell__img { aspect-ratio: 1/1; overflow: hidden; border-radius: 12px; background: var(--glass-bg-strong, rgba(255,255,255,.04)); }
+.compare-cell__img img { width: 100%; height: 100%; object-fit: cover; }
+.compare-cell__title { font-weight: 600; font-size: 14px; min-height: 36px; }
+.compare-cell__price { font-weight: 700; font-size: 18px; }
+.badge-cheapest { color: #2ecc71; font-size: 14px; }
+.compare-cell__src, .compare-cell__rating { font-size: 12px; color: var(--text-dim); }
+.compare-cell__actions { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; }
+
+/* Admin pages reuse */
+.grid-2col { display: grid; grid-template-columns: 1fr; gap: 18px; }
+@media (min-width: 720px) { .grid-2col { grid-template-columns: 1fr 1fr; } }

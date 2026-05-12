@@ -24,6 +24,22 @@
       local: '🇺🇿 Mahalliy', intl: '🌍 Xalqaro',
       catPhone: 'Smartfon', catLaptop: 'Noutbuk', catTv: 'Televizor',
       catShoes: 'Krossovka', catWatch: 'Soat', catHeadphones: 'Naushnik',
+      priceHistory: 'Narx tarixi', lowest: 'Eng past', atLowest: 'Tarixiy minimum',
+      alertTitle: 'Narx tushganda email yuborilsin',
+      alertTarget: 'Maqsadli narx (UZS)',
+      alertEmail: 'Sizning email',
+      alertSubscribe: 'Obuna bo‘lish',
+      alertOk: 'Tayyor! Narx tushsa email yuboriladi.',
+      alertErr: 'Xato:',
+      alertInvalid: 'Email yoki narx noto‘g‘ri.',
+      addCompare: 'Taqqoslashga qo‘shish',
+      inCompare: 'Taqqoslashda',
+      compareTitle: 'Taqqoslash',
+      compareFull: 'Maksimum 4 ta mahsulot tanlash mumkin',
+      compareNeed: 'Kamida 2 ta mahsulot tanlang',
+      compareEmpty: 'Bo‘sh — taqqoslash uchun mahsulot tanlang',
+      compareOpen: 'Taqqoslash', compareClear: 'Tozalash',
+      remove: 'O‘chirish',
     },
     ru: {
       heroTitle: 'Один поиск — результаты со всех маркетплейсов',
@@ -37,6 +53,22 @@
       markets: 'Маркетплейсы', categories: 'Категории',
       topProducts: 'Популярные товары', product: 'Товар',
       navHome: 'Главная', admin: 'Админ', more: 'предлож.',
+      priceHistory: 'История цен', lowest: 'Минимум', atLowest: 'Исторический минимум',
+      alertTitle: 'Уведомить, когда цена упадёт',
+      alertTarget: 'Целевая цена (UZS)',
+      alertEmail: 'Ваш email',
+      alertSubscribe: 'Подписаться',
+      alertOk: 'Готово! Письмо придёт, когда цена упадёт.',
+      alertErr: 'Ошибка:',
+      alertInvalid: 'Неверный email или цена.',
+      addCompare: 'В сравнение',
+      inCompare: 'В сравнении',
+      compareTitle: 'Сравнение',
+      compareFull: 'Максимум 4 товара',
+      compareNeed: 'Выберите минимум 2 товара',
+      compareEmpty: 'Пусто',
+      compareOpen: 'Сравнить', compareClear: 'Очистить',
+      remove: 'Удалить',
       local: '🇺🇿 Локальные', intl: '🌍 Международные',
       catPhone: 'Смартфон', catLaptop: 'Ноутбук', catTv: 'Телевизор',
       catShoes: 'Кроссовки', catWatch: 'Часы', catHeadphones: 'Наушники',
@@ -53,6 +85,22 @@
       markets: 'Marketplaces', categories: 'Categories',
       topProducts: 'Top products', product: 'Product',
       navHome: 'Home', admin: 'Admin', more: 'offers',
+      priceHistory: 'Price history', lowest: 'Lowest', atLowest: 'All-time low',
+      alertTitle: 'Notify me when the price drops',
+      alertTarget: 'Target price (UZS)',
+      alertEmail: 'Your email',
+      alertSubscribe: 'Subscribe',
+      alertOk: 'Done! We will email you when price drops.',
+      alertErr: 'Error:',
+      alertInvalid: 'Invalid email or price.',
+      addCompare: 'Add to compare',
+      inCompare: 'In compare',
+      compareTitle: 'Compare',
+      compareFull: 'Maximum 4 items',
+      compareNeed: 'Pick at least 2 items',
+      compareEmpty: 'Empty',
+      compareOpen: 'Compare', compareClear: 'Clear',
+      remove: 'Remove',
       local: '🇺🇿 Local', intl: '🌍 International',
       catPhone: 'Phone', catLaptop: 'Laptop', catTv: 'TV',
       catShoes: 'Sneakers', catWatch: 'Watch', catHeadphones: 'Headphones',
@@ -152,6 +200,96 @@
       b.classList.toggle('active', b.dataset.view === name);
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // ---------- Compare list (localStorage) ----------
+  const COMPARE_KEY = 'mc.compare';
+  const COMPARE_MAX = 4;
+
+  function compareList() {
+    try {
+      const raw = JSON.parse(localStorage.getItem(COMPARE_KEY) || '[]');
+      return new Set((Array.isArray(raw) ? raw : []).map(Number));
+    } catch (_) {
+      return new Set();
+    }
+  }
+
+  function persistCompare(set) {
+    localStorage.setItem(COMPARE_KEY, JSON.stringify([...set]));
+    updateCompareBar();
+  }
+
+  function toggleCompare(id) {
+    const set = compareList();
+    id = Number(id);
+    if (set.has(id)) {
+      set.delete(id);
+    } else if (set.size < COMPARE_MAX) {
+      set.add(id);
+    } else {
+      toast(t('compareFull') || 'Limit reached');
+      return;
+    }
+    persistCompare(set);
+  }
+
+  function updateCompareBar() {
+    const bar = $('#compareBar');
+    if (!bar) return;
+    const set = compareList();
+    if (set.size === 0) {
+      bar.classList.remove('show');
+      return;
+    }
+    bar.classList.add('show');
+    bar.querySelector('.compare-count').textContent = String(set.size);
+  }
+
+  async function openCompare() {
+    const set = compareList();
+    if (set.size < 2) {
+      toast(t('compareNeed') || 'Need at least 2 items');
+      return;
+    }
+    showView('compare');
+    const root = $('#compareDetail');
+    root.innerHTML = '<div class="loading">⏳</div>';
+    const data = await api('compare', { params: { ids: [...set].join(',') } });
+    const list = (data.ok ? data.products || [] : []).map(normalize).filter(Boolean);
+    if (!list.length) {
+      root.innerHTML = `<div class="empty">${t('compareEmpty') || 'No items'}</div>`;
+      return;
+    }
+    const cheapest = Math.min(...list.map((p) => p.price));
+    root.innerHTML = `
+      <div class="compare-grid">
+        ${list.map((p) => `
+          <div class="compare-cell ${p.price === cheapest ? 'is-cheapest' : ''}">
+            <div class="compare-cell__img">${p.image ? `<img src="${escapeHtml(p.image)}" alt="">` : ''}</div>
+            <div class="compare-cell__title">${escapeHtml(p.title)}</div>
+            <div class="compare-cell__price">${fmtPrice(p.price, p.currency)}${p.price === cheapest ? ` <span class="badge-cheapest">⬇</span>` : ''}</div>
+            <div class="compare-cell__src">${escapeHtml(p.source_name || p.source)}</div>
+            ${p.rating ? `<div class="compare-cell__rating">⭐ ${p.rating.toFixed(1)} (${p.reviews || 0})</div>` : ''}
+            <div class="compare-cell__actions">
+              <a class="btn-primary" href="${escapeHtml(safeUrl(p.url))}" target="_blank" rel="noopener">${t('open')}</a>
+              <button data-remove="${p.id}" class="link-danger">${t('remove') || 'Remove'}</button>
+            </div>
+          </div>
+        `).join('')}
+      </div>
+    `;
+    root.querySelectorAll('[data-remove]').forEach((b) => {
+      b.onclick = () => {
+        toggleCompare(Number(b.dataset.remove));
+        openCompare();
+      };
+    });
+  }
+
+  function clearCompare() {
+    persistCompare(new Set());
+    if ($('#view-compare')?.classList.contains('active')) showView('home');
   }
 
   // ---------- API ----------
@@ -452,6 +590,113 @@
     list.forEach((p) => grid.appendChild(productCard(p)));
   }
 
+  function sparkline(points, width, height) {
+    if (!points || points.length < 2) return '';
+    const w = width || 300;
+    const h = height || 60;
+    const min = Math.min(...points);
+    const max = Math.max(...points);
+    const range = max - min || 1;
+    const step = w / (points.length - 1);
+    const xy = points.map((v, i) => {
+      const x = (i * step).toFixed(1);
+      const y = (h - ((v - min) / range) * (h - 4) - 2).toFixed(1);
+      return `${x},${y}`;
+    });
+    const path = `M ${xy.join(' L ')}`;
+    const area = `M 0,${h} L ${xy.join(' L ')} L ${w},${h} Z`;
+    return `
+      <svg viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" width="100%" height="${h}" aria-hidden="true">
+        <defs>
+          <linearGradient id="sparkfill" x1="0" x2="0" y1="0" y2="1">
+            <stop offset="0%"  stop-color="currentColor" stop-opacity="0.25"/>
+            <stop offset="100%" stop-color="currentColor" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path d="${area}" fill="url(#sparkfill)" stroke="none"/>
+        <path d="${path}" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round" stroke-linecap="round"/>
+      </svg>`;
+  }
+
+  async function renderHistory(productId, mountEl, currentPrice) {
+    mountEl.innerHTML = `<div class="loading">⏳</div>`;
+    const data = await api('history', { params: { id: productId, limit: 60 } });
+    if (!data.ok || !data.history || data.history.length < 2) {
+      mountEl.innerHTML = ''; // not enough points yet — hide section
+      return;
+    }
+    const series = data.history.map((r) => Number(r.price_uzs != null ? r.price_uzs : r.price));
+    const minUzs = Number(data.min_uzs || 0);
+    const atMin = currentPrice > 0 && minUzs > 0 && Math.abs(currentPrice - minUzs) < 1;
+    mountEl.innerHTML = `
+      <h3 class="section-title">${t('priceHistory')}</h3>
+      <div class="sparkline-wrap${atMin ? ' is-min' : ''}">
+        ${sparkline(series, 600, 80)}
+        <div class="sparkline-meta">
+          <span>${t('lowest')}: <strong>${fmtPrice(minUzs, 'UZS')}</strong></span>
+          ${atMin ? `<span class="badge-min">⬇ ${t('atLowest')}</span>` : ''}
+        </div>
+      </div>
+    `;
+  }
+
+  function alertFormHtml(productId, currentPrice) {
+    const suggested = Math.round(currentPrice * 0.9);
+    return `
+      <details class="alert-box">
+        <summary>🔔 ${t('alertTitle')}</summary>
+        <form class="alert-form" data-product-id="${productId}">
+          <label class="alert-row">
+            <span>${t('alertTarget')}</span>
+            <input type="number" min="1" step="1" name="target_price" value="${suggested}" required>
+          </label>
+          <label class="alert-row">
+            <span>${t('alertEmail')}</span>
+            <input type="email" name="email" placeholder="email@example.com" required>
+          </label>
+          <button type="submit" class="btn-primary">${t('alertSubscribe')}</button>
+          <div class="alert-msg" aria-live="polite"></div>
+        </form>
+      </details>`;
+  }
+
+  function bindAlertForm(formEl) {
+    if (!formEl) return;
+    formEl.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const pid = Number(formEl.dataset.productId);
+      const target = Number(formEl.target_price.value);
+      const email = String(formEl.email.value || '').trim();
+      const msg = formEl.querySelector('.alert-msg');
+      if (!email || !target || !pid) {
+        msg.textContent = t('alertInvalid');
+        msg.className = 'alert-msg is-error';
+        return;
+      }
+      msg.textContent = '…';
+      msg.className = 'alert-msg';
+      try {
+        const r = await fetch('../api/index.php?action=alert_create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ product_id: pid, email, target_price: target, currency: 'UZS' }),
+        });
+        const j = await r.json();
+        if (j.ok) {
+          msg.textContent = t('alertOk');
+          msg.className = 'alert-msg is-ok';
+          formEl.reset();
+        } else {
+          msg.textContent = t('alertErr') + ' ' + (j.error || '');
+          msg.className = 'alert-msg is-error';
+        }
+      } catch (err) {
+        msg.textContent = t('alertErr');
+        msg.className = 'alert-msg is-error';
+      }
+    });
+  }
+
   async function openProduct(p) {
     state.currentProduct = p;
     showView('product');
@@ -479,6 +724,7 @@
     const syncedHtml = fresh.synced
       ? `<div class="detail-synced">🟢 ${t('synced')}: ${escapeHtml(fresh.synced)}</div>`
       : '';
+    const inCompare = compareList().has(fresh.id);
 
     root.innerHTML = `
       <div class="detail-img">${fresh.image ? `<img src="${escapeHtml(fresh.image)}" alt="">` : ''}</div>
@@ -488,9 +734,23 @@
       <div class="detail-row"><span class="label">${t('source')}</span><span class="value">${escapeHtml(fresh.source_name || fresh.source)}</span></div>
       ${fresh.rating ? `<div class="detail-row"><span class="label">${t('rating')}</span><span class="value">⭐ ${fresh.rating.toFixed(1)} (${fresh.reviews})</span></div>` : ''}
       ${fresh.seller ? `<div class="detail-row"><span class="label">${t('seller')}</span><span class="value">${escapeHtml(fresh.seller)}</span></div>` : ''}
-      <a class="detail-buy" href="${escapeHtml(safeUrl(fresh.url))}" target="_blank" rel="noopener">${t('open')}</a>
+      <div class="detail-actions">
+        <a class="detail-buy" href="${escapeHtml(safeUrl(fresh.url))}" target="_blank" rel="noopener">${t('open')}</a>
+        <button class="btn-compare" id="toggleCompareBtn">${inCompare ? '✓ ' + t('inCompare') : '⚖ ' + t('addCompare')}</button>
+      </div>
+      <div id="priceHistoryMount"></div>
+      ${alertFormHtml(fresh.id, fresh.price)}
       ${others.length ? `<h3 class="section-title">${t('similar')}</h3><div class="compare-list">${compare}</div>` : ''}
     `;
+    renderHistory(fresh.id, $('#priceHistoryMount'), fresh.price);
+    bindAlertForm(root.querySelector('.alert-form'));
+    const btn = $('#toggleCompareBtn');
+    if (btn) btn.onclick = () => {
+      toggleCompare(fresh.id);
+      btn.textContent = compareList().has(fresh.id)
+        ? '✓ ' + t('inCompare')
+        : '⚖ ' + t('addCompare');
+    };
   }
 
   async function loadHomeProducts() {
@@ -576,6 +836,11 @@
         }
       });
     }
+
+    const openBtn = $('#compareOpenBtn');
+    if (openBtn) openBtn.onclick = openCompare;
+    const clearBtn = $('#compareClearBtn');
+    if (clearBtn) clearBtn.onclick = clearCompare;
   }
 
   function showLangPicker() {
@@ -643,6 +908,7 @@
     } catch (e) { /* ignore */ }
     renderMarketplaces();
     loadHomeProducts();
+    updateCompareBar();
   }
 
   if (document.readyState === 'loading') {
