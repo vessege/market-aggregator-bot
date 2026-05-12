@@ -464,6 +464,22 @@
     return card;
   }
 
+  // Apply stagger fade-in and bind tilt once per grid.
+  function decorateGrid(grid) {
+    if (!grid) return;
+    if (!grid._tiltBound) {
+      bindTilt(grid);
+      grid._tiltBound = true;
+    }
+    if (_reduceMotion) return;
+    const cards = grid.querySelectorAll('.product-card');
+    cards.forEach((c, i) => {
+      c.classList.add('card-enter');
+      c.style.setProperty('--enter-delay', (i * 40) + 'ms');
+      requestAnimationFrame(() => requestAnimationFrame(() => c.classList.add('card-enter--show')));
+    });
+  }
+
   function renderResults() {
     let list = state.products.slice();
     if (state.sourceFilter) list = list.filter((p) => p.source === state.sourceFilter);
@@ -475,7 +491,7 @@
       return;
     }
     $('#resultsEmpty').classList.add('hidden');
-    list.forEach((p) => grid.appendChild(productCard(p)));
+    list.forEach((p) => grid.appendChild(productCard(p))); decorateGrid(grid);
   }
 
   function sortProducts(list) {
@@ -523,7 +539,7 @@
           $('#resultsEmpty').classList.remove('hidden');
         } else {
           $('#resultsEmpty').classList.add('hidden');
-          list.forEach((p) => grid.appendChild(productCard(p)));
+          list.forEach((p) => grid.appendChild(productCard(p))); decorateGrid(grid);
         }
       };
     });
@@ -587,7 +603,7 @@
       $('#marketEmpty').classList.remove('hidden');
       return;
     }
-    list.forEach((p) => grid.appendChild(productCard(p)));
+    list.forEach((p) => grid.appendChild(productCard(p))); decorateGrid(grid);
   }
 
   function sparkline(points, width, height) {
@@ -729,7 +745,7 @@
     root.innerHTML = `
       <div class="detail-img">${fresh.image ? `<img src="${escapeHtml(fresh.image)}" alt="">` : ''}</div>
       <div class="detail-title">${escapeHtml(fresh.title)}</div>
-      <div><span class="detail-price">${fmtPrice(fresh.price, fresh.currency)}</span>${oldP}</div>
+      <div><span class="detail-price" id="detailPrice" data-value="0"></span>${oldP}</div>
       ${syncedHtml}
       <div class="detail-row"><span class="label">${t('source')}</span><span class="value">${escapeHtml(fresh.source_name || fresh.source)}</span></div>
       ${fresh.rating ? `<div class="detail-row"><span class="label">${t('rating')}</span><span class="value">⭐ ${fresh.rating.toFixed(1)} (${fresh.reviews})</span></div>` : ''}
@@ -742,6 +758,14 @@
       ${alertFormHtml(fresh.id, fresh.price)}
       ${others.length ? `<h3 class="section-title">${t('similar')}</h3><div class="compare-list">${compare}</div>` : ''}
     `;
+    // Rolling number on the detail price (animates 0 -> price on open).
+    const priceEl = $('#detailPrice');
+    if (priceEl) {
+      const suffix = fresh.currency === 'UZS'
+        ? 'so‘m'
+        : (fresh.currency === 'USD' ? 'USD' : (fresh.currency === 'RUB' ? '₽' : fresh.currency));
+      animateNumber(priceEl, fresh.price, { duration: 700, suffix });
+    }
     renderHistory(fresh.id, $('#priceHistoryMount'), fresh.price);
     bindAlertForm(root.querySelector('.alert-form'));
     const btn = $('#toggleCompareBtn');
@@ -762,7 +786,7 @@
     clearSkeletons(grid);
     grid.innerHTML = '';
     const list = (data.ok ? (data.products || []) : []).map(normalize).filter(Boolean);
-    list.forEach((p) => grid.appendChild(productCard(p)));
+    list.forEach((p) => grid.appendChild(productCard(p))); decorateGrid(grid);
     state.products = list;
   }
 
@@ -909,6 +933,107 @@
     renderMarketplaces();
     loadHomeProducts();
     updateCompareBar();
+    registerServiceWorker();
+    setupInstallPrompt();
+  }
+
+  // ---------- PWA: service worker + install prompt ----------
+  function registerServiceWorker() {
+    if (!('serviceWorker' in navigator)) return;
+    // Use page-relative path so the SW scope matches the install dir
+    // (works whether we're at /, /market/public/, etc.)
+    const swPath = new URL('sw.js', window.location.href).href;
+    navigator.serviceWorker.register(swPath).catch((e) => {
+      console.warn('SW register failed', e);
+    });
+  }
+
+  let _deferredPrompt = null;
+  function setupInstallPrompt() {
+    const btn = $('#installBtn');
+    if (!btn) return;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      e.preventDefault();
+      _deferredPrompt = e;
+      btn.hidden = false;
+    });
+    btn.addEventListener('click', async () => {
+      if (!_deferredPrompt) return;
+      _deferredPrompt.prompt();
+      try { await _deferredPrompt.userChoice; } catch (_) {}
+      _deferredPrompt = null;
+      btn.hidden = true;
+    });
+    window.addEventListener('appinstalled', () => {
+      btn.hidden = true;
+      _deferredPrompt = null;
+    });
+  }
+
+  // ---------- 3D tilt for product cards ----------
+  // Applied to every .product-card via event delegation. No library.
+  // Honors prefers-reduced-motion.
+  const _reduceMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  function bindTilt(root) {
+    if (_reduceMotion) return;
+    // Touch devices: skip — tilt is a pointer-only flourish.
+    if (window.matchMedia('(hover: none)').matches) return;
+    root.addEventListener('pointermove', (e) => {
+      const card = e.target.closest('.product-card');
+      if (!card || !root.contains(card)) return;
+      const r = card.getBoundingClientRect();
+      const px = (e.clientX - r.left) / r.width;  // 0..1
+      const py = (e.clientY - r.top)  / r.height;
+      const rx = (0.5 - py) * 8;   // tilt up/down
+      const ry = (px - 0.5) * 10;  // tilt left/right
+      card.style.transform = `perspective(700px) rotateX(${rx.toFixed(2)}deg) rotateY(${ry.toFixed(2)}deg) translateZ(0)`;
+      card.style.setProperty('--gx', (px * 100).toFixed(1) + '%');
+      card.style.setProperty('--gy', (py * 100).toFixed(1) + '%');
+      card.classList.add('is-tilting');
+    }, { passive: true });
+    root.addEventListener('pointerleave', () => {
+      root.querySelectorAll('.product-card.is-tilting').forEach((c) => {
+        c.style.transform = '';
+        c.classList.remove('is-tilting');
+      });
+    }, { passive: true });
+    root.addEventListener('pointerout', (e) => {
+      const card = e.target.closest('.product-card');
+      if (!card) return;
+      if (e.relatedTarget && card.contains(e.relatedTarget)) return;
+      card.style.transform = '';
+      card.classList.remove('is-tilting');
+    }, { passive: true });
+  }
+
+  // ---------- Rolling/animated numbers ----------
+  // Wraps a numeric element and animates from previous value to the new one.
+  function animateNumber(el, to, opts) {
+    if (!el) return;
+    opts = opts || {};
+    const dur = opts.duration || 600;
+    const from = Number(el.dataset.value || 0);
+    const target = Number(to) || 0;
+    if (_reduceMotion || dur <= 0) {
+      el.textContent = formatRolling(target, opts.suffix);
+      el.dataset.value = String(target);
+      return;
+    }
+    const start = performance.now();
+    function step(now) {
+      const t = Math.min(1, (now - start) / dur);
+      // ease-out cubic
+      const eased = 1 - Math.pow(1 - t, 3);
+      const v = from + (target - from) * eased;
+      el.textContent = formatRolling(v, opts.suffix);
+      if (t < 1) requestAnimationFrame(step);
+      else el.dataset.value = String(target);
+    }
+    requestAnimationFrame(step);
+  }
+  function formatRolling(n, suffix) {
+    const s = Math.round(Number(n) || 0).toLocaleString('ru-RU').replace(/,/g, ' ');
+    return suffix ? `${s} ${suffix}` : s;
   }
 
   if (document.readyState === 'loading') {

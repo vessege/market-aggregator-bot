@@ -19,5 +19,9 @@
 # UTF-8
 AddDefaultCharset UTF-8
 
+# PWA MIME types
+AddType application/manifest+json .webmanifest
+AddType image/svg+xml .svg
+
 # Disable directory listing
 Options -Indexes
