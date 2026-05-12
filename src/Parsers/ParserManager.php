@@ -188,6 +188,12 @@ final class ParserManager
         $existing = $check->fetch(PDO::FETCH_ASSOC);
 
         if ($existing) {
+            // Capture price change BEFORE we overwrite the row so we can
+            // append to price_history when the price moves.
+            $prev = $pdo->prepare('SELECT price, currency FROM products WHERE id = :id LIMIT 1');
+            $prev->execute(['id' => (int) $existing['id']]);
+            $prevRow = $prev->fetch(PDO::FETCH_ASSOC) ?: null;
+
             $sets = [];
             $params = ['id' => (int) $existing['id']];
             foreach ($row as $k => $v) {
@@ -201,12 +207,65 @@ final class ParserManager
             $params['__updated'] = date('Y-m-d H:i:s');
             $sql = 'UPDATE products SET ' . implode(', ', $sets) . ' WHERE id = :id';
             $pdo->prepare($sql)->execute($params);
+
+            self::recordPriceHistory(
+                (int) $existing['id'],
+                (float) $row['price'],
+                (string) ($row['currency'] ?? 'UZS'),
+                $prevRow ? (float) $prevRow['price'] : null,
+                $prevRow ? (string) ($prevRow['currency'] ?? 'UZS') : null,
+            );
             return 'updated';
         }
 
         $cols = array_keys($row);
         $sql = 'INSERT INTO products (' . implode(',', $cols) . ') VALUES (:' . implode(', :', $cols) . ')';
         $pdo->prepare($sql)->execute($row);
+        $newId = (int) $pdo->lastInsertId();
+
+        // First sighting — always record a baseline snapshot.
+        self::recordPriceHistory(
+            $newId,
+            (float) $row['price'],
+            (string) ($row['currency'] ?? 'UZS'),
+            prevPrice: null,
+            prevCurrency: null,
+        );
         return 'inserted';
+    }
+
+    /**
+     * Append a row to price_history if the price actually moved. Same-price
+     * upserts would otherwise bloat the table without adding any signal.
+     */
+    private static function recordPriceHistory(
+        int $productId,
+        float $price,
+        string $currency,
+        ?float $prevPrice,
+        ?string $prevCurrency,
+    ): void {
+        if ($price <= 0) {
+            return;
+        }
+        // Skip if the price (and currency) didn't change.
+        if ($prevPrice !== null && abs($prevPrice - $price) < 0.005 && $prevCurrency === $currency) {
+            return;
+        }
+        try {
+            Database::pdo()->prepare(
+                'INSERT INTO price_history (product_id, price, currency, captured_at)
+                 VALUES (:pid, :p, :c, :now)'
+            )->execute([
+                'pid' => $productId,
+                'p'   => $price,
+                'c'   => $currency,
+                'now' => date('Y-m-d H:i:s'),
+            ]);
+        } catch (\Throwable $e) {
+            Logger::error('price_history', 'insert failed', [
+                'product_id' => $productId, 'err' => $e->getMessage(),
+            ]);
+        }
     }
 }

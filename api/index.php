@@ -6,6 +6,8 @@ use MarketBot\Core\Env;
 use MarketBot\Core\Logger;
 use MarketBot\Core\RateLimiter;
 use MarketBot\Parsers\ParserRegistry;
+use MarketBot\WebApp\AlertRepository;
+use MarketBot\WebApp\PriceHistoryRepository;
 use MarketBot\WebApp\ProductRepository;
 
 require_once dirname(__DIR__) . '/src/Core/Bootstrap.php';
@@ -172,6 +174,61 @@ try {
                 $list[] = ['source' => $src, 'name' => $parser->displayName()];
             }
             ok(['sources' => $list]);
+        }
+
+        case 'history': {
+            $id = (int) ($_GET['id'] ?? 0);
+            if ($id <= 0) fail(400, 'invalid id');
+            $limit = (int) ($_GET['limit'] ?? 90);
+            $repo  = new PriceHistoryRepository();
+            $rows  = $repo->recent($id, $limit);
+            $stats = $repo->stats($id);
+            ok([
+                'product_id' => $id,
+                'history'    => $rows,
+                'min_uzs'    => $stats['min'],
+                'max_uzs'    => $stats['max'],
+                'points'     => $stats['n'],
+            ]);
+        }
+
+        case 'compare': {
+            // Multiple product IDs comma-separated, e.g. ?ids=12,17,23
+            $idsRaw = (string) ($_GET['ids'] ?? '');
+            $ids = array_filter(array_map('intval', explode(',', $idsRaw)));
+            $ids = array_values(array_unique($ids));
+            if (!$ids) fail(400, 'no ids');
+            if (count($ids) > 6) $ids = array_slice($ids, 0, 6);
+            $out = [];
+            foreach ($ids as $id) {
+                $p = $products->findById((int) $id);
+                if ($p) $out[] = $p;
+            }
+            ok(['products' => $out]);
+        }
+
+        case 'alert_create': {
+            // POST only — prevents accidental form auto-submit on link click.
+            if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+                fail(405, 'method_not_allowed');
+            }
+            // Tighter rate limit per IP so we can't be used as an email-bomb relay.
+            if (!RateLimiter::allow('api:alert_create', $ip, 5, 60)) {
+                header('Retry-After: 60');
+                fail(429, 'rate_limited');
+            }
+            $body = json_in() ?: $_POST;
+            try {
+                $alertId = (new AlertRepository())->create(
+                    productId:   (int) ($body['product_id']   ?? 0),
+                    email:       (string) ($body['email']     ?? ''),
+                    targetPrice: (float) ($body['target_price'] ?? 0),
+                    currency:    (string) ($body['currency']  ?? 'UZS'),
+                );
+            } catch (\InvalidArgumentException $e) {
+                fail(400, $e->getMessage());
+            }
+            ok(['alert_id' => $alertId]);
         }
 
         default:

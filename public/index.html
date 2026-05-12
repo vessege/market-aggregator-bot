@@ -116,12 +116,27 @@
       </div>
       <div id="productDetail"></div>
     </section>
+
+    <!-- Compare view -->
+    <section id="view-compare" class="view">
+      <div class="results-head glass">
+        <button class="back-btn glass-btn" data-back="home" aria-label="Ortga">←</button>
+        <div class="results-title" data-i18n="compareTitle">Taqqoslash</div>
+      </div>
+      <div id="compareDetail"></div>
+    </section>
   </main>
 
   <nav class="bottom-nav glass">
     <button class="nav-btn active" data-view="home"><span>🏠</span><span data-i18n="navHome">Bosh sahifa</span></button>
     <button class="nav-btn" data-view="markets-jump"><span>🏬</span><span data-i18n="markets">Marketlar</span></button>
   </nav>
+
+  <div class="compare-bar glass" id="compareBar" role="region" aria-label="Compare">
+    <span class="compare-bar__label">⚖ <span class="compare-count">0</span></span>
+    <button id="compareOpenBtn" class="btn-primary"><span data-i18n="compareOpen">Taqqoslash</span></button>
+    <button id="compareClearBtn" class="link-danger"><span data-i18n="compareClear">Tozalash</span></button>
+  </div>
 
   <div class="toast" id="toast"></div>
 

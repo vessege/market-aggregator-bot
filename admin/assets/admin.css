@@ -578,3 +578,29 @@ code {
   .sidebar__footer { width: 100%; border: 0; padding: 8px; }
   .topbar { padding: 12px 16px; border-radius: var(--radius-md); }
 }
+
+/* === Faza 3 — Settings + Alerts pages === */
+.card {
+  background: var(--glass-bg, rgba(255,255,255,.7));
+  border: 1px solid var(--glass-border, rgba(0,0,0,.06));
+  border-radius: var(--radius-md, 14px);
+  padding: 18px 18px 16px;
+  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(14px);
+}
+.card h2 { margin: 0 0 6px; font-size: 18px; }
+.card .muted { color: var(--text-dim, #6b7286); font-size: 12px; margin-bottom: 14px; }
+
+.field { display: flex; flex-direction: column; gap: 4px; margin-bottom: 12px; }
+.field > span { font-size: 12px; color: var(--text-dim, #6b7286); }
+.field input { padding: 9px 12px; border: 1px solid #e3e6ee; border-radius: 10px; font-size: 14px; }
+.field input:focus { outline: 2px solid #6f86ff; outline-offset: 1px; }
+.field-check { display: flex; gap: 8px; align-items: center; margin-bottom: 12px; font-size: 14px; }
+
+.data-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+.data-table th, .data-table td { padding: 9px 8px; border-bottom: 1px solid #eef0f5; text-align: left; }
+.data-table th { font-weight: 600; color: var(--text-dim, #6b7286); background: rgba(0,0,0,.02); }
+.status { padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 600; }
+.status--active    { background: #e6f9ee; color: #1f8f4a; }
+.status--notified  { background: #eef2ff; color: #3b54d6; }
+.status--cancelled { background: #fdecec; color: #c44d4d; }
