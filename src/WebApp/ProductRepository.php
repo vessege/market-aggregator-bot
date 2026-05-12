@@ -22,8 +22,12 @@ final class ProductRepository
 
         if (!empty($filter['q'])) {
             // Escape LIKE wildcards so user-supplied %/_ don't behave as wildcards.
-            $needle = '%' . addcslashes((string) $filter['q'], '\%_') . '%';
-            $where[] = "(p.title LIKE :q ESCAPE '\\' OR p.description LIKE :q ESCAPE '\\')";
+            // Uses '!' as ESCAPE so the SQL never contains a backslash, which
+            // MySQL would otherwise interpret as a string escape and break parsing.
+            $q = (string) $filter['q'];
+            $q = str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $q);
+            $needle = '%' . $q . '%';
+            $where[] = "(p.title LIKE :q ESCAPE '!' OR p.description LIKE :q ESCAPE '!')";
             $params['q'] = $needle;
         }
         if (!empty($filter['category'])) {

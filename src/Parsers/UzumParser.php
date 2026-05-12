@@ -136,9 +136,15 @@ final class UzumParser extends BaseParser
                 . '}',
         ];
 
+        // Browser-like headers — Uzum's WAF/anti-bot rejects bare requests
+        // even with a valid Bearer token if Origin/Referer/UA look like a bot.
         $headers = [
             'Authorization'   => $authTyp . ' ' . $token,
-            'Accept-Language' => 'uz-UZ',
+            'Accept'          => 'application/json',
+            'Accept-Language' => 'uz-UZ,uz;q=0.9,ru;q=0.8,en;q=0.7',
+            'Origin'          => 'https://uzum.uz',
+            'Referer'         => 'https://uzum.uz/',
+            'User-Agent'      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
         ];
         if ($xIid !== '') {
             $headers['X-Iid'] = $xIid;
@@ -146,13 +152,28 @@ final class UzumParser extends BaseParser
 
         $resp = $this->http->postJson($endpoint, $body, $headers);
         if (!$resp['ok']) {
-            Logger::error('parser-uzum', 'graphql search failed', ['status' => $resp['status']]);
+            // Log the first 300 chars of the body too — Uzum returns JSON errors
+            // (token expired, schema mismatch) we want to see, not just the status.
+            Logger::error('parser-uzum', 'graphql search failed', [
+                'status'  => $resp['status'],
+                'error'   => $resp['error'] ?? null,
+                'snippet' => substr((string) $resp['body'], 0, 300),
+            ]);
             return;
         }
 
         $json = json_decode($resp['body'], true);
+        if (isset($json['errors']) && is_array($json['errors']) && $json['errors']) {
+            Logger::error('parser-uzum', 'graphql returned errors', [
+                'errors' => array_slice($json['errors'], 0, 3),
+            ]);
+            return;
+        }
         $items = $json['data']['makeSearch']['items'] ?? [];
         if (!is_array($items)) {
+            Logger::error('parser-uzum', 'graphql response missing items', [
+                'snippet' => substr((string) $resp['body'], 0, 300),
+            ]);
             return;
         }
 
