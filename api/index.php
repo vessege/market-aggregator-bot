@@ -8,8 +8,10 @@ use MarketBot\Core\Logger;
 use MarketBot\Core\RateLimiter;
 use MarketBot\Parsers\ParserRegistry;
 use MarketBot\WebApp\AlertRepository;
+use MarketBot\WebApp\HotKeywordRepository;
 use MarketBot\WebApp\PriceHistoryRepository;
 use MarketBot\WebApp\ProductRepository;
+use MarketBot\WebApp\SearchAnalytics;
 
 require_once dirname(__DIR__) . '/src/Core/Bootstrap.php';
 $config = Bootstrap::init();
@@ -82,7 +84,12 @@ try {
             // what comes back, and re-query the local index so we return a
             // unified list.
             $q = trim((string) ($filter['q'] ?? ''));
-            $liveAllowed = ($_GET['live'] ?? '1') !== '0';
+            // Hybrid arch: LIVE_SEARCH_ENABLED master toggle. When the upstream
+            // API (Uzum/WB) is unstable, an operator can flip this to "0" in
+            // .env and the site keeps serving cache-only without any user
+            // visible breakage. Hot-keywords cron continues filling the DB.
+            $liveEnabled   = (Env::get('LIVE_SEARCH_ENABLED', '1') !== '0');
+            $liveAllowed   = $liveEnabled && (($_GET['live'] ?? '1') !== '0');
             $liveThreshold = 5;
             $liveTriggered = false;
             $liveStats = null;
@@ -139,6 +146,18 @@ try {
             } elseif (isset($liveStats['skipped'])) {
                 $resp['live'] = ['skipped' => $liveStats['skipped']];
             }
+
+            // Hybrid arch: record this search so cron can pre-fetch popular
+            // queries. Also auto-promote queries with zero results to the
+            // hot_keywords table so next cron pass tries to scrape them.
+            if ($q !== '') {
+                (new SearchAnalytics())->record($q, count($items), $liveTriggered, $ip);
+                if (count($items) === 0) {
+                    (new HotKeywordRepository())->add($q, 20);
+                    $resp['queued'] = true;
+                }
+            }
+
             ok($resp);
         }
 

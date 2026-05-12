@@ -60,7 +60,7 @@ jobs:
             \MarketBot\Core\Bootstrap::init();
             \$pdo = \MarketBot\Core\Database::pdo();
             \$tables = \$pdo->query(\"SELECT name FROM sqlite_master WHERE type='table' ORDER BY name\")->fetchAll(PDO::FETCH_COLUMN);
-            \$expected = ['admins','categories','dynamic_sources','parser_runs','products','schema_migrations','settings'];
+            \$expected = ['admins','categories','dynamic_sources','hot_keywords','parser_runs','price_alerts','price_history','products','schema_migrations','search_logs','settings'];
             sort(\$tables);
             foreach (\$expected as \$t) {
               if (!in_array(\$t, \$tables, true)) { fwrite(STDERR, \"missing table: \$t\n\"); exit(1); }

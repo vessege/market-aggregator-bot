@@ -183,6 +183,23 @@
     return s + ' ' + currency;
   }
 
+  // "Yangilangan: 8 min oldin" badge. Returns empty string when we have no
+  // timestamp so the card still renders cleanly.
+  function renderFreshness(updatedAt) {
+    if (!updatedAt) return '';
+    const ts = Date.parse(String(updatedAt).replace(' ', 'T') + 'Z');
+    if (Number.isNaN(ts)) return '';
+    const seconds = Math.max(0, Math.floor((Date.now() - ts) / 1000));
+    let label;
+    let cls = 'fresh-badge';
+    if (seconds < 60) { label = 'hozir yangilandi'; cls += ' fresh-now'; }
+    else if (seconds < 3600) { label = Math.floor(seconds / 60) + ' min oldin'; cls += ' fresh-recent'; }
+    else if (seconds < 86400) { label = Math.floor(seconds / 3600) + ' soat oldin'; }
+    else if (seconds < 86400 * 7) { label = Math.floor(seconds / 86400) + ' kun oldin'; cls += ' fresh-stale'; }
+    else { label = Math.floor(seconds / 86400) + ' kun oldin'; cls += ' fresh-stale'; }
+    return `<div class="${cls}" title="${escapeHtml(updatedAt)}">⏱ ${label}</div>`;
+  }
+
   function toast(msg) {
     const el = $('#toast');
     if (!el) return;
@@ -443,6 +460,9 @@
     const ratingTxt = p.rating ? '⭐ ' + p.rating.toFixed(1) : '';
     const soldTxt = p.sold ? '🛒 ' + p.sold : '';
     const moreTxt = p.offers && p.offers.length ? `+${p.offers.length} ${t('more') || ''}`.trim() : '';
+    // Freshness badge — "8 daqiqa oldin yangilangan" etc. Helps users trust
+    // the price even when it comes from the cron-driven local cache.
+    const freshHtml = renderFreshness(p.updated_at);
     const imgTag = p.image
       ? `<img loading="lazy" src="${escapeHtml(p.image)}" alt="" onerror="this.style.display='none'">`
       : '';
@@ -459,6 +479,7 @@
           <span>${ratingTxt}</span>
           <span>${soldTxt || moreTxt}</span>
         </div>
+        ${freshHtml}
       </div>`;
     card.onclick = () => openProduct(p);
     return card;
@@ -578,6 +599,15 @@
     state.sourceFilter = '';
     buildFilterChips();
     renderResults();
+
+    // Hybrid arch: when the API returns queued=true we promised to scrape
+    // the user's query in the background. Reveal a friendly message so they
+    // know to check back rather than concluding "the site is broken".
+    const queuedEl = $('#resultsQueued');
+    if (queuedEl) {
+      if (data.queued && list.length === 0) queuedEl.classList.remove('hidden');
+      else queuedEl.classList.add('hidden');
+    }
   }
 
   async function openMarketplace(m) {

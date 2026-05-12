@@ -770,6 +770,34 @@ html[data-theme="light"] .liquid-bg .blob,
 }
 .hidden { display: none !important; }
 
+/* Empty state card */
+.empty-state {
+  max-width: 480px;
+  margin: 0 auto;
+  background: var(--glass-bg);
+  border: 1px solid var(--glass-border);
+  border-radius: 24px;
+  padding: 40px 24px;
+  backdrop-filter: blur(20px);
+}
+.empty-state__icon { font-size: 48px; margin-bottom: 12px; }
+.empty-state__title { font-size: 18px; font-weight: 600; color: var(--text-primary); margin-bottom: 8px; }
+.empty-state__sub { font-size: 13px; line-height: 1.6; color: var(--text-muted); padding: 12px 0 0; }
+
+/* Freshness badge on product cards (Faza 6 hybrid arch) */
+.fresh-badge {
+  font-size: 10px;
+  margin-top: 6px;
+  color: var(--text-muted);
+  opacity: 0.7;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.fresh-badge.fresh-now    { color: #10b981; opacity: 1; font-weight: 600; }
+.fresh-badge.fresh-recent { color: #059669; opacity: 0.9; }
+.fresh-badge.fresh-stale  { color: #f59e0b; opacity: 0.85; }
+
 /* =====================================================================
    Skeleton loading (replaces spinners for product grids)
 ===================================================================== */
