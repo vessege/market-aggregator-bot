@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use MarketBot\Core\Bootstrap;
+use MarketBot\Core\Database;
 use MarketBot\Core\Env;
 use MarketBot\Core\Logger;
 use MarketBot\Core\RateLimiter;
@@ -205,6 +206,49 @@ try {
                 if ($p) $out[] = $p;
             }
             ok(['products' => $out]);
+        }
+
+        case 'health': {
+            // Lightweight health probe. Returns 200 if DB is reachable and
+            // a couple of basic invariants hold. Cache-friendly for uptime
+            // monitors but always reflects live DB state.
+            $start = microtime(true);
+            $status = 'ok';
+            $checks = [];
+
+            // DB connectivity + product count
+            try {
+                $row = Database::pdo()->query('SELECT COUNT(*) AS n FROM products')->fetch();
+                $checks['db'] = ['ok' => true, 'products' => (int) ($row['n'] ?? 0)];
+            } catch (\Throwable $e) {
+                $status = 'degraded';
+                $checks['db'] = ['ok' => false, 'err' => $e->getMessage()];
+            }
+
+            // Parser registry
+            try {
+                $manager = ParserRegistry::build($config);
+                $checks['parsers'] = ['ok' => true, 'count' => count($manager->all())];
+            } catch (\Throwable $e) {
+                $status = 'degraded';
+                $checks['parsers'] = ['ok' => false, 'err' => $e->getMessage()];
+            }
+
+            // Storage writability (rate-limit dir is a good proxy)
+            $rateDir = dirname(__DIR__) . '/storage/ratelimit';
+            $checks['storage'] = [
+                'ok' => is_dir($rateDir) ? is_writable($rateDir) : is_writable(dirname($rateDir)),
+            ];
+            if (!$checks['storage']['ok']) $status = 'degraded';
+
+            $elapsedMs = (int) round((microtime(true) - $start) * 1000);
+            if ($status !== 'ok') http_response_code(503);
+            ok([
+                'status'     => $status,
+                'checks'     => $checks,
+                'elapsed_ms' => $elapsedMs,
+                'time'       => date('c'),
+            ]);
         }
 
         case 'alert_create': {
