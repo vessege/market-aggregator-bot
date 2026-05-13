@@ -5,18 +5,24 @@ namespace MarketBot\Core;
 
 final class Env
 {
-    private static bool $loaded = false;
     /** @var array<string,string> */
     private static array $cache = [];
+    private static int $cachedMtime = 0;
+    private static string $cachedPath = '';
 
     public static function load(string $path): void
     {
-        if (self::$loaded) {
+        if (!is_file($path)) {
             return;
         }
-        self::$loaded = true;
 
-        if (!is_file($path)) {
+        // Reload .env whenever the file changes on disk. This lets operators
+        // rotate secrets (Uzum JWT, etc.) without restarting PHP-FPM — the
+        // long-lived workers automatically pick up the new values on the next
+        // request after the file is saved.
+        clearstatcache(true, $path);
+        $mtime = (int) @filemtime($path);
+        if (self::$cachedPath === $path && self::$cachedMtime === $mtime && self::$cache !== []) {
             return;
         }
 
@@ -25,6 +31,7 @@ final class Env
             return;
         }
 
+        $fresh = [];
         foreach ($lines as $line) {
             $line = trim($line);
             if ($line === '' || str_starts_with($line, '#')) {
@@ -42,13 +49,17 @@ final class Env
                 $value = substr($value, 1, -1);
             }
 
-            self::$cache[$key] = $value;
-            if (getenv($key) === false) {
-                putenv("$key=$value");
-                $_ENV[$key] = $value;
-                $_SERVER[$key] = $value;
-            }
+            $fresh[$key] = $value;
+            // Force-override process env vars so an edited .env wins over any
+            // stale value cached by a long-lived PHP-FPM worker. Code that
+            // reads `getenv(...)` directly will now see the latest value.
+            putenv("$key=$value");
+            $_ENV[$key] = $value;
+            $_SERVER[$key] = $value;
         }
+        self::$cache = $fresh;
+        self::$cachedPath = $path;
+        self::$cachedMtime = $mtime;
     }
 
     public static function get(string $key, mixed $default = null): mixed

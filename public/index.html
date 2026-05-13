@@ -91,7 +91,15 @@
       </div>
 
       <div id="resultsLoading" class="loading hidden">⏳ Qidirilmoqda...</div>
-      <div id="resultsEmpty" class="empty hidden">😔 Hech narsa topilmadi</div>
+      <div id="resultsEmpty" class="empty hidden">
+        <div class="empty-state">
+          <div class="empty-state__icon">🔍</div>
+          <div class="empty-state__title">Hech narsa topilmadi</div>
+          <div id="resultsQueued" class="empty-state__sub hidden">
+            ✨ Bu so'rovni indeksimizga qo'shdik. 5-10 daqiqada qaytib keling — yangi natijalar paydo bo'ladi.
+          </div>
+        </div>
+      </div>
       <div id="resultsGrid" class="product-grid"></div>
     </section>
 

@@ -134,6 +134,30 @@ CREATE TABLE schema_migrations (
   applied_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- Faza 6: foydalanuvchi qidiruvlari (hybrid arch)
+CREATE TABLE search_logs (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    "query"    TEXT NOT NULL,
+    results    INTEGER NOT NULL DEFAULT 0,
+    live_used  INTEGER NOT NULL DEFAULT 0,
+    ip_hash    TEXT,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_search_logs_query   ON search_logs("query", created_at);
+CREATE INDEX idx_search_logs_created ON search_logs(created_at);
+
+-- Faza 6: admin tomonidan boshqariladigan "issiq" qidiruv so'zlari
+CREATE TABLE hot_keywords (
+    id              INTEGER PRIMARY KEY AUTOINCREMENT,
+    keyword         TEXT NOT NULL UNIQUE,
+    priority        INTEGER NOT NULL DEFAULT 10,
+    is_active       INTEGER NOT NULL DEFAULT 1,
+    last_fetched_at DATETIME,
+    last_results    INTEGER NOT NULL DEFAULT 0,
+    created_at      DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_hot_keywords_active ON hot_keywords(is_active, priority);
+
 INSERT INTO categories (slug, name, icon, position) VALUES
   ('elektronika', 'Elektronika', '📱', 1),
   ('uy-jihozlari', 'Uy jihozlari', '🏠', 2),

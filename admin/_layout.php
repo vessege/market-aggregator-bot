@@ -25,6 +25,7 @@ $user = Auth::user();
       <a href="parsers.php"    class="<?= $activeMenu === 'parsers'   ? 'is-active' : '' ?>">🔄 Parserlar</a>
       <a href="markets.php"    class="<?= $activeMenu === 'markets'   ? 'is-active' : '' ?>">🏬 Marketlar</a>
       <a href="products.php"   class="<?= $activeMenu === 'products'  ? 'is-active' : '' ?>">📦 Mahsulotlar</a>
+      <a href="keywords.php"   class="<?= $activeMenu === 'keywords'  ? 'is-active' : '' ?>">🔥 Hot Keywords</a>
       <a href="alerts.php"     class="<?= $activeMenu === 'alerts'    ? 'is-active' : '' ?>">🔔 Ogohlantirishlar</a>
       <a href="settings.php"   class="<?= $activeMenu === 'settings'  ? 'is-active' : '' ?>">⚙️ Sozlamalar</a>
     </nav>
