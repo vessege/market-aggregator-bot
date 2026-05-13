@@ -24,11 +24,16 @@ final class ProductRepository
             // Escape LIKE wildcards so user-supplied %/_ don't behave as wildcards.
             // Uses '!' as ESCAPE so the SQL never contains a backslash, which
             // MySQL would otherwise interpret as a string escape and break parsing.
+            //
+            // Two separate placeholders (:q1, :q2) are required because
+            // PDO::ATTR_EMULATE_PREPARES is off — native MySQL prepared
+            // statements demand each placeholder appear exactly once.
             $q = (string) $filter['q'];
             $q = str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $q);
             $needle = '%' . $q . '%';
-            $where[] = "(p.title LIKE :q ESCAPE '!' OR p.description LIKE :q ESCAPE '!')";
-            $params['q'] = $needle;
+            $where[] = "(p.title LIKE :q1 ESCAPE '!' OR p.description LIKE :q2 ESCAPE '!')";
+            $params['q1'] = $needle;
+            $params['q2'] = $needle;
         }
         if (!empty($filter['category'])) {
             $where[] = 'c.slug = :cat';
