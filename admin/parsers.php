@@ -38,7 +38,11 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
         $limit  = max(1, (int) ($_POST['limit']  ?? 30));
         $depth  = max(1, (int) ($_POST['depth']  ?? 2));
         $query  = trim((string) ($_POST['query'] ?? ''));
-        @set_time_limit(180);
+        // Best-effort; on hardened hosts set_time_limit is restricted and just
+        // returns false. We don't suppress the error so it shows up in logs.
+        if (function_exists('set_time_limit')) {
+            set_time_limit(180);
+        }
         try {
             $opts = ['max_items' => $limit, 'max_depth' => $depth];
             if ($query !== '') $opts['query'] = $query;

@@ -18,7 +18,6 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'POST') {
             $pdo->prepare('UPDATE products SET is_active = 1 - is_active WHERE id = :id')->execute(['id' => $id]);
             $_SESSION['flash'] = ['type' => 'success', 'message' => 'Mahsulot holati o\'zgartirildi.'];
         } elseif ($action === 'delete' && $id > 0) {
-            $pdo->prepare('DELETE FROM favorites WHERE product_id = :id')->execute(['id' => $id]);
             $pdo->prepare('DELETE FROM products WHERE id = :id')->execute(['id' => $id]);
             $_SESSION['flash'] = ['type' => 'success', 'message' => 'Mahsulot o\'chirildi.'];
         }

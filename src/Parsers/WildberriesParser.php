@@ -80,6 +80,21 @@ final class WildberriesParser extends BaseParser
         }
     }
 
+    /**
+     * Live full-text search.
+     *
+     * @param array<string,mixed> $options
+     * @return iterable<ParsedProduct>
+     */
+    public function searchQuery(string $query, array $options = []): iterable
+    {
+        $opts = ['query' => $query, 'max_items' => (int) ($options['limit'] ?? 20)];
+        if (isset($options['dest'])) {
+            $opts['dest'] = (int) $options['dest'];
+        }
+        return $this->fetchFeed($opts);
+    }
+
     public function fetchOne(string $externalId): ?ParsedProduct
     {
         $url = self::DETAIL . '?' . http_build_query([

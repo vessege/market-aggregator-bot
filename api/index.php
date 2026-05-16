@@ -3,14 +3,15 @@ declare(strict_types=1);
 
 use MarketBot\Core\Bootstrap;
 use MarketBot\Core\Database;
+use MarketBot\Core\Env;
 use MarketBot\Core\Logger;
-use MarketBot\Parsers\HttpClient;
-use MarketBot\Parsers\ParserManager;
-use MarketBot\Parsers\UzumParser;
-use MarketBot\Parsers\WildberriesParser;
-use MarketBot\Telegram\UserRepository;
-use MarketBot\Telegram\WebAppAuth;
+use MarketBot\Core\RateLimiter;
+use MarketBot\Parsers\ParserRegistry;
+use MarketBot\WebApp\AlertRepository;
+use MarketBot\WebApp\HotKeywordRepository;
+use MarketBot\WebApp\PriceHistoryRepository;
 use MarketBot\WebApp\ProductRepository;
+use MarketBot\WebApp\SearchAnalytics;
 
 require_once dirname(__DIR__) . '/src/Core/Bootstrap.php';
 $config = Bootstrap::init();
@@ -18,21 +19,13 @@ $config = Bootstrap::init();
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
 header('Access-Control-Allow-Origin: *');
-header('Access-Control-Allow-Headers: Content-Type, X-Telegram-Init-Data');
+header('Access-Control-Allow-Headers: Content-Type');
 header('Access-Control-Allow-Methods: GET, POST, OPTIONS');
+header('X-Content-Type-Options: nosniff');
 
 if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
     http_response_code(204);
     exit;
-}
-
-function read_init_data(): string
-{
-    $hdr = $_SERVER['HTTP_X_TELEGRAM_INIT_DATA'] ?? '';
-    if (is_string($hdr) && $hdr !== '') {
-        return $hdr;
-    }
-    return (string) ($_REQUEST['init_data'] ?? '');
 }
 
 function json_in(): array
@@ -59,29 +52,22 @@ function ok(array $data = []): never
 }
 
 $path = (string) ($_GET['action'] ?? '');
-$users = new UserRepository();
 $products = new ProductRepository();
+$ip = RateLimiter::clientIp();
 
-$authUser = null;
-if ($config['telegram']['token'] !== '') {
-    $verifier = new WebAppAuth($config['telegram']['token']);
-    $verified = $verifier->verify(read_init_data());
-    if ($verified !== null && !empty($verified['user'])) {
-        $authUser = $verified['user'];
-        $users->upsert($authUser);
-    }
-}
-
-$dbUserId = null;
-if ($authUser) {
-    $row = $users->findByTg((int) $authUser['id']);
-    $dbUserId = $row ? (int) $row['id'] : null;
+// Per-IP rate limits. Tunable via .env (default 60 rpm for cheap reads,
+// 10 rpm for live search which hits external APIs).
+$readLimit = (int) Env::get('RATE_LIMIT_API_RPM', 60);
+$liveLimit = (int) Env::get('RATE_LIMIT_LIVE_RPM', 10);
+if (!RateLimiter::allow('api:' . $path, $ip, $readLimit, 60)) {
+    header('Retry-After: 30');
+    fail(429, 'rate_limited');
 }
 
 try {
     switch ($path) {
         case 'products': {
-            $items = $products->search([
+            $filter = [
                 'q'         => $_GET['q']         ?? null,
                 'category'  => $_GET['category']  ?? null,
                 'source'    => $_GET['source']    ?? null,
@@ -90,12 +76,89 @@ try {
                 'sort'      => $_GET['sort']      ?? null,
                 'limit'     => $_GET['limit']     ?? 30,
                 'offset'    => $_GET['offset']    ?? 0,
-            ]);
-            if ($dbUserId !== null) {
-                $favIds = $products->favoriteIds($dbUserId);
-                $products->attachFavoriteFlag($items, $favIds);
+            ];
+            $items = $products->search($filter);
+
+            // Live search fallback: when the user typed a query and we have
+            // few/no local results, hit the marketplaces in real time, persist
+            // what comes back, and re-query the local index so we return a
+            // unified list.
+            $q = trim((string) ($filter['q'] ?? ''));
+            // Hybrid arch: LIVE_SEARCH_ENABLED master toggle. When the upstream
+            // API (Uzum/WB) is unstable, an operator can flip this to "0" in
+            // .env and the site keeps serving cache-only without any user
+            // visible breakage. Hot-keywords cron continues filling the DB.
+            $liveEnabled   = (Env::get('LIVE_SEARCH_ENABLED', '1') !== '0');
+            $liveAllowed   = $liveEnabled && (($_GET['live'] ?? '1') !== '0');
+            $liveThreshold = 5;
+            $liveTriggered = false;
+            $liveStats = null;
+            if ($liveAllowed && $q !== '' && count($items) < $liveThreshold) {
+                // Live search has its own (stricter) rate limit, since it
+                // makes outbound HTTP calls to upstream marketplaces.
+                if (!RateLimiter::allow('api:live', $ip, $liveLimit, 60)) {
+                    // Don't 429 here — just skip the live hop and serve what
+                    // we already have locally. The user still gets a useful
+                    // response, no degradation.
+                    $liveStats = ['skipped' => 'rate_limited'];
+                } else {
+                    try {
+                        $manager = ParserRegistry::build($config);
+                        $sources = null;
+                        if (!empty($filter['source'])) {
+                            $sources = [(string) $filter['source']];
+                        }
+                        $liveStats = $manager->searchAll($q, $sources, 20);
+                        $liveTriggered = true;
+                        if (($liveStats['total'] ?? 0) > 0) {
+                            $items = $products->search($filter);
+                        }
+                    } catch (\Throwable $e) {
+                        Logger::error('api', 'live search failed', [
+                            'q' => $q, 'err' => $e->getMessage(),
+                        ]);
+                    }
+                }
             }
-            ok(['products' => $items]);
+
+            // Cross-source dedupe: when several marketplaces return the same
+            // product (same title), keep the cheapest as the "primary" and
+            // attach the others under offers[] so the frontend can show "also
+            // available on X for Y so'm" without duplicate cards in the grid.
+            $items = dedupe_by_title($items);
+
+            // Apply [min,max] price filter in PHP after FX conversion — the
+            // SQL-level filter ran against source prices which may be in RUB.
+            $items = apply_uzs_price_window(
+                $items,
+                $filter['min_price'] !== null ? (float) $filter['min_price'] : null,
+                $filter['max_price'] !== null ? (float) $filter['max_price'] : null,
+            );
+
+            $resp = ['products' => $items];
+            if ($liveTriggered) {
+                $resp['live'] = [
+                    'triggered' => true,
+                    'inserted'  => (int) ($liveStats['inserted'] ?? 0),
+                    'updated'   => (int) ($liveStats['updated'] ?? 0),
+                    'by_source' => $liveStats['by_source'] ?? [],
+                ];
+            } elseif (isset($liveStats['skipped'])) {
+                $resp['live'] = ['skipped' => $liveStats['skipped']];
+            }
+
+            // Hybrid arch: record this search so cron can pre-fetch popular
+            // queries. Also auto-promote queries with zero results to the
+            // hot_keywords table so next cron pass tries to scrape them.
+            if ($q !== '') {
+                (new SearchAnalytics())->record($q, count($items), $liveTriggered, $ip);
+                if (count($items) === 0) {
+                    (new HotKeywordRepository())->add($q, 20);
+                    $resp['queued'] = true;
+                }
+            }
+
+            ok($resp);
         }
 
         case 'categories': {
@@ -110,16 +173,9 @@ try {
 
             // On-demand "live" refresh if older than 5 minutes.
             $stale = isset($p['updated_at']) && (time() - strtotime((string) $p['updated_at']) > 300);
-            if ($stale && $p['source'] === 'uzum') {
+            if ($stale && RateLimiter::allow('api:live', $ip, $liveLimit, 60)) {
                 try {
-                    $http = new HttpClient(
-                        userAgent: $config['parser']['user_agent'],
-                        timeout:   $config['parser']['timeout'],
-                        delayMs:   0
-                    );
-                    $manager = new ParserManager($http);
-                    $manager->register(new UzumParser($http));
-                    $manager->register(new WildberriesParser($http));
+                    $manager = ParserRegistry::build($config);
                     if (in_array($p['source'], array_keys($manager->all()), true)) {
                         $manager->refreshProduct((string) $p['source'], (string) $p['external_id']);
                         $p = $products->findById($id);
@@ -128,42 +184,114 @@ try {
                     Logger::error('api', 'live refresh failed', ['id' => $id, 'err' => $e->getMessage()]);
                 }
             }
-
-            if ($dbUserId !== null && $p) {
-                $favs = $products->favoriteIds($dbUserId);
-                $p['is_favorite'] = in_array($id, $favs, true);
-            }
             ok(['product' => $p]);
         }
 
-        case 'favorites': {
-            if ($dbUserId === null) fail(401, 'auth required');
-            ok(['products' => $products->favorites($dbUserId)]);
-        }
-
-        case 'toggle_favorite': {
-            if ($dbUserId === null) fail(401, 'auth required');
-            $body = json_in();
-            $pid = (int) ($body['product_id'] ?? 0);
-            if ($pid <= 0) fail(400, 'invalid product_id');
-            $added = $products->toggleFavorite($dbUserId, $pid);
-            ok(['favorited' => $added]);
-        }
-
-        case 'me': {
-            ok(['user' => $authUser, 'db_user_id' => $dbUserId]);
-        }
-
         case 'sources': {
-            $http = new HttpClient(userAgent: $config['parser']['user_agent']);
-            $manager = new ParserManager($http);
-            $manager->register(new UzumParser($http));
-            $manager->register(new WildberriesParser($http));
+            $manager = ParserRegistry::build($config);
             $list = [];
             foreach ($manager->all() as $src => $parser) {
                 $list[] = ['source' => $src, 'name' => $parser->displayName()];
             }
             ok(['sources' => $list]);
+        }
+
+        case 'history': {
+            $id = (int) ($_GET['id'] ?? 0);
+            if ($id <= 0) fail(400, 'invalid id');
+            $limit = (int) ($_GET['limit'] ?? 90);
+            $repo  = new PriceHistoryRepository();
+            $rows  = $repo->recent($id, $limit);
+            $stats = $repo->stats($id);
+            ok([
+                'product_id' => $id,
+                'history'    => $rows,
+                'min_uzs'    => $stats['min'],
+                'max_uzs'    => $stats['max'],
+                'points'     => $stats['n'],
+            ]);
+        }
+
+        case 'compare': {
+            // Multiple product IDs comma-separated, e.g. ?ids=12,17,23
+            $idsRaw = (string) ($_GET['ids'] ?? '');
+            $ids = array_filter(array_map('intval', explode(',', $idsRaw)));
+            $ids = array_values(array_unique($ids));
+            if (!$ids) fail(400, 'no ids');
+            if (count($ids) > 6) $ids = array_slice($ids, 0, 6);
+            $out = [];
+            foreach ($ids as $id) {
+                $p = $products->findById((int) $id);
+                if ($p) $out[] = $p;
+            }
+            ok(['products' => $out]);
+        }
+
+        case 'health': {
+            // Lightweight health probe. Returns 200 if DB is reachable and
+            // a couple of basic invariants hold. Cache-friendly for uptime
+            // monitors but always reflects live DB state.
+            $start = microtime(true);
+            $status = 'ok';
+            $checks = [];
+
+            // DB connectivity + product count
+            try {
+                $row = Database::pdo()->query('SELECT COUNT(*) AS n FROM products')->fetch();
+                $checks['db'] = ['ok' => true, 'products' => (int) ($row['n'] ?? 0)];
+            } catch (\Throwable $e) {
+                $status = 'degraded';
+                $checks['db'] = ['ok' => false, 'err' => $e->getMessage()];
+            }
+
+            // Parser registry
+            try {
+                $manager = ParserRegistry::build($config);
+                $checks['parsers'] = ['ok' => true, 'count' => count($manager->all())];
+            } catch (\Throwable $e) {
+                $status = 'degraded';
+                $checks['parsers'] = ['ok' => false, 'err' => $e->getMessage()];
+            }
+
+            // Storage writability (rate-limit dir is a good proxy)
+            $rateDir = dirname(__DIR__) . '/storage/ratelimit';
+            $checks['storage'] = [
+                'ok' => is_dir($rateDir) ? is_writable($rateDir) : is_writable(dirname($rateDir)),
+            ];
+            if (!$checks['storage']['ok']) $status = 'degraded';
+
+            $elapsedMs = (int) round((microtime(true) - $start) * 1000);
+            if ($status !== 'ok') http_response_code(503);
+            ok([
+                'status'     => $status,
+                'checks'     => $checks,
+                'elapsed_ms' => $elapsedMs,
+                'time'       => date('c'),
+            ]);
+        }
+
+        case 'alert_create': {
+            // POST only — prevents accidental form auto-submit on link click.
+            if (($_SERVER['REQUEST_METHOD'] ?? '') !== 'POST') {
+                fail(405, 'method_not_allowed');
+            }
+            // Tighter rate limit per IP so we can't be used as an email-bomb relay.
+            if (!RateLimiter::allow('api:alert_create', $ip, 5, 60)) {
+                header('Retry-After: 60');
+                fail(429, 'rate_limited');
+            }
+            $body = json_in() ?: $_POST;
+            try {
+                $alertId = (new AlertRepository())->create(
+                    productId:   (int) ($body['product_id']   ?? 0),
+                    email:       (string) ($body['email']     ?? ''),
+                    targetPrice: (float) ($body['target_price'] ?? 0),
+                    currency:    (string) ($body['currency']  ?? 'UZS'),
+                );
+            } catch (\InvalidArgumentException $e) {
+                fail(400, $e->getMessage());
+            }
+            ok(['alert_id' => $alertId]);
         }
 
         default:
@@ -172,4 +300,76 @@ try {
 } catch (\Throwable $e) {
     Logger::error('api', 'unhandled', ['err' => $e->getMessage(), 'path' => $path]);
     fail(500, 'server error');
+}
+
+/**
+ * Group products by a normalized title so cross-source duplicates collapse
+ * into one card with the other offers attached. The cheapest offer wins the
+ * top slot — that's what users want to see first.
+ *
+ * @param array<int,array<string,mixed>> $items
+ * @return array<int,array<string,mixed>>
+ */
+function dedupe_by_title(array $items): array
+{
+    if (count($items) < 2) {
+        return $items;
+    }
+    $groups = [];
+    foreach ($items as $row) {
+        $title = (string) ($row['title'] ?? '');
+        $key   = normalize_title($title);
+        if ($key === '') {
+            // unique key per row so things without title don't collide
+            $key = 'row:' . (string) ($row['id'] ?? spl_object_hash((object) $row));
+        }
+        $groups[$key][] = $row;
+    }
+    $out = [];
+    foreach ($groups as $group) {
+        if (count($group) === 1) {
+            $out[] = $group[0];
+            continue;
+        }
+        usort($group, fn($a, $b) => ((float) ($a['price'] ?? 0)) <=> ((float) ($b['price'] ?? 0)));
+        $primary = $group[0];
+        $offers  = [];
+        for ($i = 1; $i < count($group); $i++) {
+            $offers[] = [
+                'id'           => $group[$i]['id']           ?? null,
+                'source'       => $group[$i]['source']       ?? '',
+                'price'        => $group[$i]['price']        ?? 0,
+                'currency'     => $group[$i]['currency']     ?? 'UZS',
+                'external_url' => $group[$i]['external_url'] ?? null,
+            ];
+        }
+        $primary['offers'] = $offers;
+        $out[] = $primary;
+    }
+    return $out;
+}
+
+function normalize_title(string $s): string
+{
+    $s = mb_strtolower($s);
+    $s = preg_replace('/[\p{P}\p{S}]+/u', ' ', $s) ?? $s;
+    $s = preg_replace('/\s+/u', ' ', $s) ?? $s;
+    return trim($s);
+}
+
+/**
+ * @param array<int,array<string,mixed>> $items
+ * @return array<int,array<string,mixed>>
+ */
+function apply_uzs_price_window(array $items, ?float $min, ?float $max): array
+{
+    if ($min === null && $max === null) {
+        return $items;
+    }
+    return array_values(array_filter($items, function ($row) use ($min, $max) {
+        $price = (float) ($row['price_uzs'] ?? $row['price'] ?? 0);
+        if ($min !== null && $price < $min) return false;
+        if ($max !== null && $price > $max) return false;
+        return true;
+    }));
 }

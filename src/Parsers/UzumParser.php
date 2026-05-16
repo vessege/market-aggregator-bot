@@ -83,6 +83,163 @@ final class UzumParser extends BaseParser
         }
     }
 
+    /**
+     * Live full-text search via Uzum's GraphQL endpoint.
+     *
+     * Requires UZUM_AUTH_TOKEN (and ideally UZUM_X_IID) in .env. The token is
+     * a short-lived Bearer/Basic token issued by uzum.uz to its frontend; it
+     * rotates periodically. Without a valid token this method returns nothing.
+     *
+     * Options:
+     *  - limit:      int     max products (default 20)
+     *  - auth_token: string  override env token
+     *  - x_iid:      string  override env x-iid
+     *  - auth_type:  string  Bearer | Basic (default Bearer)
+     *  - graphql_url: string override endpoint
+     *
+     * @param array<string,mixed> $options
+     * @return iterable<ParsedProduct>
+     */
+    public function searchQuery(string $query, array $options = []): iterable
+    {
+        $token   = (string) ($options['auth_token']  ?? getenv('UZUM_AUTH_TOKEN') ?: '');
+        $xIid    = (string) ($options['x_iid']       ?? getenv('UZUM_X_IID') ?: '');
+        $authTyp = (string) ($options['auth_type']   ?? getenv('UZUM_AUTH_TYPE') ?: 'Bearer');
+        $endpoint = (string) ($options['graphql_url'] ?? getenv('UZUM_GRAPHQL_URL') ?: 'https://graphql.uzum.uz/');
+        $limit   = max(1, min(100, (int) ($options['limit'] ?? 20)));
+
+        if ($token === '') {
+            Logger::error('parser-uzum', 'live search skipped: UZUM_AUTH_TOKEN not configured', []);
+            return;
+        }
+
+        $body = [
+            'operationName' => 'getMakeSearch',
+            'variables' => [
+                'queryInput' => [
+                    'text' => $query,
+                    'showAdultContent' => 'TRUE',
+                    'filters' => [],
+                    'sort' => 'BY_RELEVANCE_DESC',
+                    'pagination' => ['offset' => 0, 'limit' => $limit],
+                ],
+            ],
+            'query' => 'query getMakeSearch($queryInput: MakeSearchQueryInput!) {'
+                . ' makeSearch(query: $queryInput) {'
+                . '   items { catalogCard {'
+                . '     id productId title minSellPrice minFullPrice rating'
+                . '     ordersQuantity feedbackQuantity'
+                . '     photos { link(trans: PRODUCT_540) { high low } }'
+                . '   } }'
+                . '   total'
+                . ' }'
+                . '}',
+        ];
+
+        // Browser-like headers — Uzum's WAF/anti-bot rejects bare requests
+        // even with a valid Bearer token if Origin/Referer/UA look like a bot.
+        $headers = [
+            'Authorization'   => $authTyp . ' ' . $token,
+            'Accept'          => 'application/json',
+            'Accept-Language' => 'uz-UZ,uz;q=0.9,ru;q=0.8,en;q=0.7',
+            'Origin'          => 'https://uzum.uz',
+            'Referer'         => 'https://uzum.uz/',
+            'User-Agent'      => 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        ];
+        if ($xIid !== '') {
+            $headers['X-Iid'] = $xIid;
+        }
+
+        $resp = $this->http->postJson($endpoint, $body, $headers);
+        if (!$resp['ok']) {
+            // Log the first 300 chars of the body too — Uzum returns JSON errors
+            // (token expired, schema mismatch) we want to see, not just the status.
+            Logger::error('parser-uzum', 'graphql search failed', [
+                'status'  => $resp['status'],
+                'error'   => $resp['error'] ?? null,
+                'snippet' => substr((string) $resp['body'], 0, 300),
+            ]);
+            return;
+        }
+
+        $json = json_decode($resp['body'], true);
+        if (isset($json['errors']) && is_array($json['errors']) && $json['errors']) {
+            Logger::error('parser-uzum', 'graphql returned errors', [
+                'errors' => array_slice($json['errors'], 0, 3),
+            ]);
+            return;
+        }
+        $items = $json['data']['makeSearch']['items'] ?? [];
+        if (!is_array($items)) {
+            Logger::error('parser-uzum', 'graphql response missing items', [
+                'snippet' => substr((string) $resp['body'], 0, 300),
+            ]);
+            return;
+        }
+
+        foreach ($items as $it) {
+            $card = $it['catalogCard'] ?? null;
+            if (!is_array($card)) {
+                continue;
+            }
+            $product = $this->mapSearchCard($card);
+            if ($product !== null) {
+                yield $product;
+            }
+        }
+    }
+
+    /** @param array<string,mixed> $card */
+    private function mapSearchCard(array $card): ?ParsedProduct
+    {
+        $id = isset($card['productId']) ? (string) $card['productId'] : (isset($card['id']) ? (string) $card['id'] : '');
+        if ($id === '') {
+            return null;
+        }
+        $title = (string) ($card['title'] ?? '');
+        if ($title === '') {
+            return null;
+        }
+
+        $price = isset($card['minSellPrice']) ? (float) $card['minSellPrice'] : 0.0;
+        $oldPrice = null;
+        if (isset($card['minFullPrice']) && (float) $card['minFullPrice'] > $price) {
+            $oldPrice = (float) $card['minFullPrice'];
+        }
+
+        $imageUrl = null;
+        $images = [];
+        $photos = $card['photos'] ?? [];
+        if (is_array($photos)) {
+            foreach ($photos as $ph) {
+                $link = $ph['link']['high'] ?? $ph['link']['low'] ?? null;
+                if (is_string($link) && $link !== '') {
+                    $images[] = $link;
+                    $imageUrl ??= $link;
+                }
+            }
+        }
+
+        return new ParsedProduct(
+            source:       'uzum',
+            externalId:   $id,
+            title:        $title,
+            price:        $price,
+            currency:     'UZS',
+            oldPrice:     $oldPrice,
+            description:  null,
+            imageUrl:     $imageUrl,
+            images:       $images,
+            externalUrl:  sprintf(self::PRODUCT_URL_TEMPLATE, $id),
+            categorySlug: null,
+            rating:       isset($card['rating']) ? (float) $card['rating'] : null,
+            reviewsCount: (int) ($card['feedbackQuantity'] ?? 0),
+            soldCount:    (int) ($card['ordersQuantity'] ?? 0),
+            seller:       null,
+            sellerRating: null,
+        );
+    }
+
     public function fetchOne(string $externalId): ?ParsedProduct
     {
         $url = self::BASE . '/api/v2/product/' . urlencode($externalId);

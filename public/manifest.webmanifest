@@ -1,0 +1,21 @@
+{
+  "name": "MarketCompare — narxlarni taqqoslash",
+  "short_name": "MarketCompare",
+  "description": "Uzum, Wildberries va boshqa marketplacelar bo‘yicha narxlarni real vaqtda taqqoslang.",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#0b1120",
+  "theme_color": "#0b1120",
+  "orientation": "portrait-primary",
+  "lang": "uz",
+  "icons": [
+    {
+      "src": "assets/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["shopping", "utilities"]
+}

@@ -9,6 +9,8 @@
 !/storage/uploads/broadcast/.gitkeep
 /storage/uploads/products/*
 !/storage/uploads/products/.gitkeep
+/storage/ratelimit/
+/storage/backups/
 /storage/database.sqlite
 *.sqlite
 *.sqlite-journal

@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 namespace MarketBot\WebApp;
 
+use MarketBot\Core\CurrencyConverter;
 use MarketBot\Core\Database;
 use PDO;
 
@@ -20,8 +21,19 @@ final class ProductRepository
         $params = [];
 
         if (!empty($filter['q'])) {
-            $where[] = '(p.title LIKE :q OR p.description LIKE :q)';
-            $params['q'] = '%' . $filter['q'] . '%';
+            // Escape LIKE wildcards so user-supplied %/_ don't behave as wildcards.
+            // Uses '!' as ESCAPE so the SQL never contains a backslash, which
+            // MySQL would otherwise interpret as a string escape and break parsing.
+            //
+            // Two separate placeholders (:q1, :q2) are required because
+            // PDO::ATTR_EMULATE_PREPARES is off — native MySQL prepared
+            // statements demand each placeholder appear exactly once.
+            $q = (string) $filter['q'];
+            $q = str_replace(['!', '%', '_'], ['!!', '!%', '!_'], $q);
+            $needle = '%' . $q . '%';
+            $where[] = "(p.title LIKE :q1 ESCAPE '!' OR p.description LIKE :q2 ESCAPE '!')";
+            $params['q1'] = $needle;
+            $params['q2'] = $needle;
         }
         if (!empty($filter['category'])) {
             $where[] = 'c.slug = :cat';
@@ -80,69 +92,22 @@ final class ProductRepository
     /** @return array<int,array<string,mixed>> */
     public function categories(): array
     {
+        // Single GROUP BY query — avoids N+1 lookups when there are many
+        // categories. LEFT JOIN keeps empty categories visible with count=0.
         $rows = Database::pdo()->query(
-            "SELECT id, slug, name, icon, position
-               FROM categories
-              WHERE is_active = 1
-              ORDER BY position, name"
+            "SELECT c.id, c.slug, c.name, c.icon, c.position,
+                    COUNT(p.id) AS product_count
+               FROM categories c
+               LEFT JOIN products p ON p.category_id = c.id AND p.is_active = 1
+              WHERE c.is_active = 1
+              GROUP BY c.id, c.slug, c.name, c.icon, c.position
+              ORDER BY c.position, c.name"
         )->fetchAll(PDO::FETCH_ASSOC);
 
-        $out = [];
-        foreach ($rows as $r) {
-            $cnt = Database::pdo()->prepare(
-                'SELECT COUNT(*) AS c FROM products WHERE category_id = :id AND is_active = 1'
-            );
-            $cnt->execute(['id' => $r['id']]);
-            $r['product_count'] = (int) ($cnt->fetch(PDO::FETCH_ASSOC)['c'] ?? 0);
-            $out[] = $r;
+        foreach ($rows as &$r) {
+            $r['product_count'] = (int) ($r['product_count'] ?? 0);
         }
-        return $out;
-    }
-
-    /** @return array<int,array<string,mixed>> */
-    public function favorites(int $userId): array
-    {
-        $stmt = Database::pdo()->prepare(
-            'SELECT p.*, c.slug AS category_slug, c.name AS category_name, c.icon AS category_icon
-               FROM favorites f
-               JOIN products p ON p.id = f.product_id
-          LEFT JOIN categories c ON c.id = p.category_id
-              WHERE f.user_id = :u
-              ORDER BY f.created_at DESC'
-        );
-        $stmt->execute(['u' => $userId]);
-        return array_map([$this, 'hydrate'], $stmt->fetchAll(PDO::FETCH_ASSOC));
-    }
-
-    public function toggleFavorite(int $userId, int $productId): bool
-    {
-        $pdo = Database::pdo();
-        $check = $pdo->prepare('SELECT id FROM favorites WHERE user_id = :u AND product_id = :p');
-        $check->execute(['u' => $userId, 'p' => $productId]);
-        if ($row = $check->fetch(PDO::FETCH_ASSOC)) {
-            $pdo->prepare('DELETE FROM favorites WHERE id = :id')->execute(['id' => $row['id']]);
-            return false;
-        }
-        $pdo->prepare('INSERT INTO favorites (user_id, product_id) VALUES (:u, :p)')
-            ->execute(['u' => $userId, 'p' => $productId]);
-        return true;
-    }
-
-    /** @param array<int> $favoriteIds */
-    public function attachFavoriteFlag(array &$products, array $favoriteIds): void
-    {
-        $favSet = array_flip($favoriteIds);
-        foreach ($products as &$p) {
-            $p['is_favorite'] = isset($favSet[(int) $p['id']]);
-        }
-    }
-
-    /** @return array<int> */
-    public function favoriteIds(int $userId): array
-    {
-        $stmt = Database::pdo()->prepare('SELECT product_id FROM favorites WHERE user_id = :u');
-        $stmt->execute(['u' => $userId]);
-        return array_map('intval', array_column($stmt->fetchAll(PDO::FETCH_ASSOC), 'product_id'));
+        return $rows;
     }
 
     /** @param array<string,mixed> $row */
@@ -172,7 +137,10 @@ final class ProductRepository
             $row['synced_at_human'] = self::humanTimeDiff($row['updated_at']);
         }
 
-        return $row;
+        // Convert non-UZS prices to UZS on the way out, so the frontend
+        // never has to know about FX rates. Original price + currency are
+        // kept in price_original / currency_original.
+        return CurrencyConverter::decorateRow($row);
     }
 
     private static function humanTimeDiff(string $datetime): string

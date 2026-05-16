@@ -6,6 +6,23 @@ use MarketBot\Core\Database;
 
 require_once dirname(__DIR__) . '/src/Core/Bootstrap.php';
 
+// SAFETY: This script applies the schema, which DROPs all tables. It is
+// destructive. We require:
+//   1. CLI invocation (refuse when called over the web)
+//   2. --confirm=YES_DESTROY (or env DESTROY_CONFIRM=YES_DESTROY)
+// to prevent accidental data loss.
+if (PHP_SAPI !== 'cli') {
+    http_response_code(403);
+    exit("setup.php is destructive and CLI-only. Use bin/migrate.php for safe schema updates.\n");
+}
+
+$argvOpts = getopt('', ['confirm:']);
+$confirm  = (string) ($argvOpts['confirm'] ?? getenv('DESTROY_CONFIRM') ?: '');
+if ($confirm !== 'YES_DESTROY') {
+    fwrite(STDERR, "Refusing to run: pass --confirm=YES_DESTROY to acknowledge this DROPs all tables.\n");
+    exit(2);
+}
+
 $config = Bootstrap::init();
 $pdo = Database::pdo();
 
