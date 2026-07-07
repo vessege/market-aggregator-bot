@@ -2,6 +2,7 @@
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS `login_attempts`;
 DROP TABLE IF EXISTS `broadcast_recipients`;
 DROP TABLE IF EXISTS `broadcasts`;
 DROP TABLE IF EXISTS `subscription_channels`;
@@ -67,11 +68,13 @@ CREATE TABLE `products` (
   `category_id` INT UNSIGNED NULL,
   `title` VARCHAR(512) NOT NULL,
   `description` TEXT NULL,
+  `search_text` TEXT NULL,                   -- normalizatsiya qilingan title+description (qidiruv uchun)
   `image_url` VARCHAR(1024) NULL,            -- birinchi rasm
   `images_json` TEXT NULL,                   -- JSON array of image urls
   `price` DECIMAL(14,2) NOT NULL DEFAULT 0,
   `old_price` DECIMAL(14,2) NULL,
   `currency` VARCHAR(8) NOT NULL DEFAULT 'UZS',
+  `price_uzs` DECIMAL(16,2) NULL,            -- UZSga konvertatsiya qilingan narx (saralash/filtr uchun)
   `rating` DECIMAL(3,2) NULL,
   `reviews_count` INT NOT NULL DEFAULT 0,
   `sold_count` INT NOT NULL DEFAULT 0,
@@ -84,8 +87,9 @@ CREATE TABLE `products` (
   UNIQUE KEY `uniq_products_source_external` (`source`, `external_id`),
   KEY `idx_products_category` (`category_id`),
   KEY `idx_products_active_price` (`is_active`, `price`),
+  KEY `idx_products_active_price_uzs` (`is_active`, `price_uzs`),
   KEY `idx_products_rating` (`rating`),
-  FULLTEXT KEY `ft_products_search` (`title`, `description`)
+  FULLTEXT KEY `ft_products_search` (`search_text`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Foydalanuvchi sevimlilari
@@ -173,6 +177,16 @@ CREATE TABLE `parser_runs` (
   KEY `idx_parser_runs_source` (`source`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+-- Admin login urinishlari (brute-force himoyasi)
+CREATE TABLE `login_attempts` (
+  `id` BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+  `ip` VARCHAR(45) NOT NULL,
+  `username` VARCHAR(64) NULL,
+  `attempted_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  PRIMARY KEY (`id`),
+  KEY `idx_login_attempts_ip` (`ip`, `attempted_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 -- Sozlamalar (key-value)
 CREATE TABLE `settings` (
   `key` VARCHAR(64) NOT NULL,
@@ -192,3 +206,8 @@ INSERT INTO `categories` (`slug`, `name`, `icon`, `position`) VALUES
   ('oziq-ovqat',  'Oziq-ovqat', '🛒', 7),
   ('kitoblar',    'Kitoblar', '📚', 8),
   ('avtomobil',   'Avto', '🚗', 9);
+
+-- Boshlang'ich valyuta kurslari (taxminiy; cron orqali yangilang: php bin/update-rates.php)
+INSERT INTO `settings` (`key`, `value`) VALUES
+  ('rate_usd_uzs', '12900'),
+  ('rate_rub_uzs', '150');

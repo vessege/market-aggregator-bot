@@ -28,11 +28,10 @@ if (($_SERVER['REQUEST_METHOD'] ?? '') === 'OPTIONS') {
 
 function read_init_data(): string
 {
+    // Header only: initData carries auth material and must not appear in
+    // query strings (access logs, referrers).
     $hdr = $_SERVER['HTTP_X_TELEGRAM_INIT_DATA'] ?? '';
-    if (is_string($hdr) && $hdr !== '') {
-        return $hdr;
-    }
-    return (string) ($_REQUEST['init_data'] ?? '');
+    return is_string($hdr) ? $hdr : '';
 }
 
 function json_in(): array
@@ -110,7 +109,7 @@ try {
 
             // On-demand "live" refresh if older than 5 minutes.
             $stale = isset($p['updated_at']) && (time() - strtotime((string) $p['updated_at']) > 300);
-            if ($stale && $p['source'] === 'uzum') {
+            if ($stale && !empty($p['external_id'])) {
                 try {
                     $http = new HttpClient(
                         userAgent: $config['parser']['user_agent'],
@@ -120,7 +119,10 @@ try {
                     $manager = new ParserManager($http);
                     $manager->register(new UzumParser($http));
                     $manager->register(new WildberriesParser($http));
-                    if (in_array($p['source'], array_keys($manager->all()), true)) {
+                    if (array_key_exists((string) $p['source'], $manager->all())) {
+                        // Touch first so parallel requests for the same stale
+                        // product don't stampede the marketplace API.
+                        $products->touch($id);
                         $manager->refreshProduct((string) $p['source'], (string) $p['external_id']);
                         $p = $products->findById($id);
                     }

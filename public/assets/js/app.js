@@ -31,6 +31,7 @@
         ...(opts.body ? { 'Content-Type': 'application/json' } : {}),
       },
       body: opts.body ? JSON.stringify(opts.body) : undefined,
+      signal: opts.signal,
     });
     const json = await res.json().catch(() => ({ ok: false, error: 'invalid json' }));
     if (!json.ok) {
@@ -40,6 +41,7 @@
   }
 
   /** ---------- State ---------- */
+  const PAGE_SIZE = 30;
   const state = {
     products: [],
     categories: [],
@@ -49,17 +51,47 @@
     sources: [],
     me: null,
     searchQuery: '',
+    offset: 0,
+    hasMore: false,
   };
 
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
   /** ---------- Formatting ---------- */
-  function formatPrice(value, currency) {
-    const n = Number(value || 0);
-    const s = Math.round(n).toLocaleString('uz-UZ').replace(/,/g, ' ');
-    const cur = currency === 'RUB' ? 'so\'m' : (currency === 'USD' ? '$' : 'so\'m');
-    return `${s} <small>${cur}</small>`;
+  function fmtNum(n) {
+    return Math.round(Number(n || 0)).toLocaleString('uz-UZ').replace(/,/g, ' ');
+  }
+  function currencyLabel(cur) {
+    if (cur === 'RUB') return '₽';
+    if (cur === 'USD') return '$';
+    return 'so\'m';
+  }
+  // Convert any product amount (price/old_price) into so'm using the
+  // server-provided price_uzs as the rate anchor. Returns null if unknown.
+  function toUzs(p, value) {
+    if (!p || value == null) return null;
+    if (p.currency === 'UZS' || !p.currency) return Number(value);
+    if (p.price_uzs && Number(p.price) > 0) {
+      return Number(value) * (Number(p.price_uzs) / Number(p.price));
+    }
+    return null;
+  }
+  // Main price display: so'm when a conversion is known, original otherwise.
+  function priceHTML(p, value) {
+    const uzs = toUzs(p, value);
+    if (uzs !== null) return `${fmtNum(uzs)} <small>so'm</small>`;
+    return `${fmtNum(value)} <small>${escapeHTML(currencyLabel(p.currency))}</small>`;
+  }
+  function priceText(p, value) {
+    const uzs = toUzs(p, value);
+    if (uzs !== null) return `${fmtNum(uzs)} so'm`;
+    return `${fmtNum(value)} ${currencyLabel(p.currency)}`;
+  }
+  function originalPriceNote(p) {
+    if (!p || p.currency === 'UZS' || !p.currency) return '';
+    if (toUzs(p, p.price) === null) return '';
+    return `≈ ${fmtNum(p.price)} ${currencyLabel(p.currency)}`;
   }
   function discountPercent(price, oldPrice) {
     if (!oldPrice || oldPrice <= price) return null;
@@ -71,9 +103,10 @@
     })[c]);
   }
   function stripTags(html) {
-    const t = document.createElement('div');
-    t.innerHTML = String(html || '');
-    return t.textContent || '';
+    // DOMParser never executes scripts/handlers and never loads resources,
+    // unlike assigning innerHTML on a detached element.
+    const doc = new DOMParser().parseFromString(String(html || ''), 'text/html');
+    return doc.body.textContent || '';
   }
 
   /** ---------- Rendering ---------- */
@@ -116,8 +149,8 @@
         <div class="card__body">
           <div class="card__title">${escapeHTML(p.title)}</div>
           <div class="card__price-row">
-            <span class="card__price">${formatPrice(p.price, p.currency)}</span>
-            ${p.old_price ? `<span class="card__old-price">${formatPrice(p.old_price, p.currency).replace(/<small>.*?<\/small>/, '')}</span>` : ''}
+            <span class="card__price">${priceHTML(p, p.price)}</span>
+            ${p.old_price ? `<span class="card__old-price">${escapeHTML(priceText(p, p.old_price).replace(/ so'm$/, ''))}</span>` : ''}
           </div>
           <div class="card__rating">${p.rating ? Number(p.rating).toFixed(1) : '—'} · ${p.reviews_count || 0} sharh</div>
           <div class="card__synced">${synced}</div>
@@ -148,23 +181,41 @@
   }
 
   /** ---------- API actions ---------- */
-  async function loadProducts() {
+  let productsAbort = null;
+
+  async function loadProducts(append = false) {
+    if (!append) state.offset = 0;
+    if (productsAbort) productsAbort.abort();
+    productsAbort = new AbortController();
+    const signal = productsAbort.signal;
+
     const loader = $('#loader');
     if (loader) loader.hidden = false;
     try {
-      const params = {};
+      const params = { limit: PAGE_SIZE, offset: state.offset };
       if (state.activeCategory) params.category = state.activeCategory;
       if (state.searchQuery)    params.q = state.searchQuery;
-      const res = await api('products', { params });
-      state.products = res.products || [];
+      const res = await api('products', { params, signal });
+      const items = res.products || [];
+      state.hasMore = items.length === PAGE_SIZE;
+      state.products = append ? state.products.concat(items) : items;
       state.products.forEach(p => { if (p.is_favorite) state.favIdSet.add(Number(p.id)); });
       renderProducts(state.products);
+      updateLoadMore();
     } catch (e) {
+      if (e.name === 'AbortError') return; // superseded by a newer request
       console.warn('loadProducts failed', e);
       renderProducts([]);
+      state.hasMore = false;
+      updateLoadMore();
     } finally {
-      if (loader) loader.hidden = true;
+      if (loader && !signal.aborted) loader.hidden = true;
     }
+  }
+
+  function updateLoadMore() {
+    const btn = $('#load-more');
+    if (btn) btn.hidden = !state.hasMore;
   }
 
   async function loadCategories() {
@@ -244,11 +295,11 @@
       const res = await api('product', { params: { id } });
       const p = res.product;
       $('#sheet-title').textContent = p.title;
-      $('#sheet-price').innerHTML = formatPrice(p.price, p.currency);
+      $('#sheet-price').innerHTML = priceHTML(p, p.price);
       const oldEl = $('#sheet-old-price');
       const discEl = $('#sheet-discount');
       if (p.old_price) {
-        oldEl.innerHTML = formatPrice(p.old_price, p.currency).replace(/<small>.*?<\/small>/, '');
+        oldEl.textContent = priceText(p, p.old_price).replace(/ so'm$/, '');
         const d = discountPercent(p.price, p.old_price);
         discEl.textContent = d ? `-${d}%` : '';
       } else {
@@ -265,9 +316,11 @@
       $('#sheet-rating').innerHTML = (p.rating ? `★ ${Number(p.rating).toFixed(1)}` : '★ —')
         + ` · ${p.reviews_count || 0} sharh · ${p.sold_count || 0} marta sotib olingan`;
 
+      const origNote = originalPriceNote(p);
       $('#sheet-meta').innerHTML = `
         <span>Manba: <strong>${escapeHTML(p.source)}</strong></span>
         ${p.category_name ? `<span>${escapeHTML(p.category_name)}</span>` : ''}
+        ${origNote ? `<span>Asl narx: ${escapeHTML(origNote)}</span>` : ''}
       `;
       if (p.synced_at_human) {
         $('#sheet-synced').textContent = `🟢 Narx yangilangan: ${p.synced_at_human}`;
@@ -324,8 +377,16 @@
     $('#search-input').addEventListener('input', e => {
       state.searchQuery = e.target.value.trim();
       clearTimeout(searchTimer);
-      searchTimer = setTimeout(loadProducts, 300);
+      searchTimer = setTimeout(() => loadProducts(false), 300);
     });
+
+    const loadMoreBtn = $('#load-more');
+    if (loadMoreBtn) {
+      loadMoreBtn.addEventListener('click', () => {
+        state.offset += PAGE_SIZE;
+        loadProducts(true);
+      });
+    }
   }
 
   async function init() {

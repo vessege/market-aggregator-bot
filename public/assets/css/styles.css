@@ -406,3 +406,19 @@ input, button { font: inherit; }
     --border: #3a3a3a;
   }
 }
+
+.load-more {
+  display: block;
+  width: calc(100% - 32px);
+  margin: 4px 16px 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--primary);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+}
+.load-more:active { background: var(--bg); }

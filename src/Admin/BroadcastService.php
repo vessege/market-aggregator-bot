@@ -132,17 +132,37 @@ final class BroadcastService
         return ['ok' => true, 'sent' => $sent, 'failed' => $failed, 'total' => $total];
     }
 
+    private const ALLOWED_UPLOADS = [
+        // ext => allowed MIME prefixes
+        'jpg'  => ['image/jpeg'],
+        'jpeg' => ['image/jpeg'],
+        'png'  => ['image/png'],
+        'webp' => ['image/webp'],
+        'gif'  => ['image/gif'],
+        'mp4'  => ['video/mp4'],
+        'mov'  => ['video/quicktime'],
+    ];
+
     /** @param array<string,mixed> $file from $_FILES */
     public function storeUpload(array $file): ?string
     {
         if (!isset($file['tmp_name']) || !is_uploaded_file($file['tmp_name'])) {
             return null;
         }
+
+        $ext = strtolower(pathinfo((string) $file['name'], PATHINFO_EXTENSION));
+        if (!isset(self::ALLOWED_UPLOADS[$ext])) {
+            return null;
+        }
+        $mime = (string) (new \finfo(FILEINFO_MIME_TYPE))->file((string) $file['tmp_name']);
+        if (!in_array($mime, self::ALLOWED_UPLOADS[$ext], true)) {
+            return null;
+        }
+
         if (!is_dir($this->uploadsDir)) {
             @mkdir($this->uploadsDir, 0775, true);
         }
-        $ext = pathinfo((string) $file['name'], PATHINFO_EXTENSION) ?: 'bin';
-        $name = sprintf('%s-%s.%s', date('Ymd-His'), bin2hex(random_bytes(6)), strtolower($ext));
+        $name = sprintf('%s-%s.%s', date('Ymd-His'), bin2hex(random_bytes(6)), $ext);
         $dest = $this->uploadsDir . '/' . $name;
         if (!move_uploaded_file($file['tmp_name'], $dest)) {
             return null;

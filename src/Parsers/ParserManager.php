@@ -3,8 +3,10 @@ declare(strict_types=1);
 
 namespace MarketBot\Parsers;
 
+use MarketBot\Core\Currency;
 use MarketBot\Core\Database;
 use MarketBot\Core\Logger;
+use MarketBot\Core\TextNormalizer;
 use PDO;
 use RuntimeException;
 
@@ -120,30 +122,36 @@ final class ParserManager
         unset($row['category_slug']);
         $row['category_id'] = $categoryId;
 
-        $check = $pdo->prepare('SELECT id FROM products WHERE source = :s AND external_id = :e LIMIT 1');
-        $check->execute(['s' => $row['source'], 'e' => $row['external_id']]);
-        $existing = $check->fetch(PDO::FETCH_ASSOC);
+        $row['search_text'] = TextNormalizer::normalize(
+            $p->title . ' ' . ($p->description ?? '') . ' ' . ($p->seller ?? '')
+        );
+        $row['price_uzs'] = Currency::toUzs($p->price, $p->currency);
 
-        if ($existing) {
-            $sets = [];
-            $params = ['id' => (int) $existing['id']];
-            foreach ($row as $k => $v) {
-                if ($k === 'source' || $k === 'external_id') {
-                    continue;
-                }
-                $sets[] = "$k = :$k";
-                $params[$k] = $v;
-            }
-            $sets[] = 'updated_at = :__updated';
-            $params['__updated'] = date('Y-m-d H:i:s');
-            $sql = 'UPDATE products SET ' . implode(', ', $sets) . ' WHERE id = :id';
-            $pdo->prepare($sql)->execute($params);
-            return 'updated';
-        }
+        // Timestamps come from PHP (app timezone) on both drivers so that the
+        // API staleness check compares like with like.
+        $now = date('Y-m-d H:i:s');
+        $row['created_at'] = $now;
+        $row['updated_at'] = $now;
+
+        // Stats only — the write below is atomic either way.
+        $check = $pdo->prepare('SELECT 1 FROM products WHERE source = :s AND external_id = :e LIMIT 1');
+        $check->execute(['s' => $row['source'], 'e' => $row['external_id']]);
+        $exists = (bool) $check->fetchColumn();
 
         $cols = array_keys($row);
-        $sql = 'INSERT INTO products (' . implode(',', $cols) . ') VALUES (:' . implode(', :', $cols) . ')';
+        $updatable = array_diff($cols, ['source', 'external_id', 'created_at']);
+
+        if (Database::isSqlite()) {
+            $sets = implode(', ', array_map(static fn ($c) => "$c = excluded.$c", $updatable));
+            $sql = 'INSERT INTO products (' . implode(',', $cols) . ') VALUES (:' . implode(', :', $cols) . ')
+                    ON CONFLICT(source, external_id) DO UPDATE SET ' . $sets;
+        } else {
+            $sets = implode(', ', array_map(static fn ($c) => "$c = VALUES($c)", $updatable));
+            $sql = 'INSERT INTO products (' . implode(',', $cols) . ') VALUES (:' . implode(', :', $cols) . ')
+                    ON DUPLICATE KEY UPDATE ' . $sets;
+        }
         $pdo->prepare($sql)->execute($row);
-        return 'inserted';
+
+        return $exists ? 'updated' : 'inserted';
     }
 }
