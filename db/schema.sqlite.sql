@@ -1,6 +1,7 @@
 -- Market Aggregator Bot — SQLite schema (development / fallback)
 PRAGMA foreign_keys = ON;
 
+DROP TABLE IF EXISTS live_search_cache;
 DROP TABLE IF EXISTS login_attempts;
 DROP TABLE IF EXISTS products_fts;
 DROP TABLE IF EXISTS broadcast_recipients;
@@ -174,6 +175,11 @@ CREATE TABLE login_attempts (
   attempted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE INDEX idx_login_attempts_ip ON login_attempts(ip, attempted_at);
+
+CREATE TABLE live_search_cache (
+  query       TEXT PRIMARY KEY,
+  searched_at DATETIME NOT NULL
+);
 
 CREATE TABLE settings (
   key        TEXT PRIMARY KEY,

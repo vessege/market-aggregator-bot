@@ -26,4 +26,31 @@ abstract class BaseParser
     {
         return null;
     }
+
+    /**
+     * Build the HTTP request for a live keyword search on this marketplace,
+     * or null if the driver doesn't support live search. Requests from all
+     * parsers are executed in parallel by ParserManager::liveSearch().
+     *
+     * @return array{method?:string, url:string, headers?:array<string,string>, body?:mixed}|null
+     */
+    public function searchRequest(string $query, int $limit): ?array
+    {
+        return null;
+    }
+
+    /**
+     * Parse the body returned for searchRequest() into products.
+     *
+     * @return ParsedProduct[]
+     */
+    public function parseSearchResponse(string $body, int $limit): array
+    {
+        return [];
+    }
+
+    public function supportsLiveSearch(): bool
+    {
+        return $this->searchRequest('probe', 1) !== null;
+    }
 }

@@ -194,7 +194,12 @@
     try {
       const params = { limit: PAGE_SIZE, offset: state.offset };
       if (state.activeCategory) params.category = state.activeCategory;
-      if (state.searchQuery)    params.q = state.searchQuery;
+      if (state.searchQuery) {
+        params.q = state.searchQuery;
+        // Live marketplace fan-out on real queries (first page only);
+        // the server TTL-caches identical queries.
+        if (!append && state.searchQuery.length >= 3) params.live = 1;
+      }
       const res = await api('products', { params, signal });
       const items = res.products || [];
       state.hasMore = items.length === PAGE_SIZE;

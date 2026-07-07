@@ -92,6 +92,96 @@ final class ParserManager
     }
 
     /**
+     * Live keyword search across every registered parser that supports it.
+     * Marketplace requests run in parallel; results are upserted into the
+     * products table so the regular DB search picks them up immediately.
+     *
+     * @return array{ok:bool, fetched:int, upserted:int, sources:array<string,array{ok:bool,count:int,error:?string}>}
+     */
+    public function liveSearch(string $query, int $limitPerSource = 10): array
+    {
+        $requests = [];
+        foreach ($this->parsers as $src => $parser) {
+            $req = $parser->searchRequest($query, $limitPerSource);
+            if ($req !== null) {
+                $requests[$src] = $req;
+            }
+        }
+        if ($requests === []) {
+            return ['ok' => true, 'fetched' => 0, 'upserted' => 0, 'sources' => []];
+        }
+
+        $responses = $this->http->multiGet($requests);
+
+        $fetched = 0;
+        $upserted = 0;
+        $sources = [];
+        foreach ($responses as $src => $resp) {
+            if (!$resp['ok']) {
+                $sources[$src] = ['ok' => false, 'count' => 0, 'error' => $resp['error'] ?? ('HTTP ' . $resp['status'])];
+                Logger::error('live-search', "$src request failed", ['status' => $resp['status'], 'error' => $resp['error']]);
+                continue;
+            }
+            try {
+                $items = $this->parsers[$src]->parseSearchResponse($resp['body'], $limitPerSource);
+            } catch (\Throwable $e) {
+                $sources[$src] = ['ok' => false, 'count' => 0, 'error' => $e->getMessage()];
+                Logger::error('live-search', "$src parse failed", ['error' => $e->getMessage()]);
+                continue;
+            }
+            $count = 0;
+            foreach ($items as $item) {
+                $fetched++;
+                if ($this->upsertProduct($item) !== 'skipped') {
+                    $upserted++;
+                }
+                $count++;
+            }
+            $sources[$src] = ['ok' => true, 'count' => $count, 'error' => null];
+        }
+
+        return ['ok' => true, 'fetched' => $fetched, 'upserted' => $upserted, 'sources' => $sources];
+    }
+
+    /**
+     * liveSearch() guarded by a TTL cache keyed on the normalized query, so
+     * repeated identical searches within the window don't hit marketplaces.
+     *
+     * @return array{ok:bool, cached:bool, fetched:int, upserted:int}
+     */
+    public function liveSearchCached(string $query, int $ttlSeconds = 600, int $limitPerSource = 10): array
+    {
+        $key = mb_substr(TextNormalizer::normalize($query), 0, 190);
+        if ($key === '') {
+            return ['ok' => true, 'cached' => false, 'fetched' => 0, 'upserted' => 0];
+        }
+
+        $pdo = Database::pdo();
+        $stmt = $pdo->prepare('SELECT searched_at FROM live_search_cache WHERE query = :q');
+        $stmt->execute(['q' => $key]);
+        $row = $stmt->fetch(PDO::FETCH_ASSOC);
+        if ($row && (time() - (int) strtotime((string) $row['searched_at'])) < $ttlSeconds) {
+            return ['ok' => true, 'cached' => true, 'fetched' => 0, 'upserted' => 0];
+        }
+
+        // Claim the cache slot before fetching so concurrent identical
+        // queries don't stampede the marketplaces.
+        $now = date('Y-m-d H:i:s');
+        if (Database::isSqlite()) {
+            $pdo->prepare('INSERT INTO live_search_cache (query, searched_at) VALUES (:q, :now)
+                           ON CONFLICT(query) DO UPDATE SET searched_at = excluded.searched_at')
+                ->execute(['q' => $key, 'now' => $now]);
+        } else {
+            $pdo->prepare('INSERT INTO live_search_cache (query, searched_at) VALUES (:q, :now)
+                           ON DUPLICATE KEY UPDATE searched_at = VALUES(searched_at)')
+                ->execute(['q' => $key, 'now' => $now]);
+        }
+
+        $res = $this->liveSearch($query, $limitPerSource);
+        return ['ok' => $res['ok'], 'cached' => false, 'fetched' => $res['fetched'], 'upserted' => $res['upserted']];
+    }
+
+    /**
      * Refresh a single product from its source — used for "live" detail view.
      */
     public function refreshProduct(string $source, string $externalId): ?ParsedProduct

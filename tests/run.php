@@ -13,8 +13,12 @@ use MarketBot\Core\Settings;
 use MarketBot\Core\TextNormalizer;
 use MarketBot\Parsers\BaseParser;
 use MarketBot\Parsers\HttpClient;
+use MarketBot\Parsers\OlxParser;
+use MarketBot\Parsers\OzonParser;
 use MarketBot\Parsers\ParsedProduct;
 use MarketBot\Parsers\ParserManager;
+use MarketBot\Parsers\UzumParser;
+use MarketBot\Parsers\WildberriesParser;
 use MarketBot\WebApp\ProductRepository;
 
 $root = dirname(__DIR__);
@@ -142,6 +146,130 @@ check('categories single-query counts', $elektronika !== null && $elektronika['p
 $pdo->exec("DELETE FROM products WHERE external_id = 'p3'");
 $r = $repo->search(['q' => 'alkimyogar']);
 check('FTS trigger syncs deletes', count($r) === 0);
+
+echo "== Live search (uzum + wildberries + olx, fixtures) ==\n";
+
+/**
+ * Canned HTTP layer with the real response shapes of the three marketplace
+ * search APIs, so the whole live-search path (fan-out -> parse -> upsert ->
+ * DB search) is exercised without network access.
+ */
+final class FakeHttpClient extends HttpClient
+{
+    public int $multiCalls = 0;
+    /** @var array<string,string> host-substring => body */
+    public array $fixtures = [];
+
+    public function get(string $url, array $headers = []): array
+    {
+        return $this->respond($url);
+    }
+
+    public function multiGet(array $requests): array
+    {
+        $this->multiCalls++;
+        $out = [];
+        foreach ($requests as $key => $req) {
+            $out[$key] = $this->respond($req['url']);
+        }
+        return $out;
+    }
+
+    private function respond(string $url): array
+    {
+        foreach ($this->fixtures as $needle => $body) {
+            if (str_contains($url, $needle)) {
+                return ['ok' => true, 'status' => 200, 'body' => $body, 'error' => null];
+            }
+        }
+        return ['ok' => false, 'status' => 404, 'body' => '', 'error' => 'no fixture'];
+    }
+}
+
+$fake = new FakeHttpClient();
+$fake->fixtures = [
+    // Uzum: GET api.uzum.uz/api/v2/main/search/product?query=...
+    'api.uzum.uz' => json_encode(['payload' => ['products' => [[
+        'productId'        => 777001,
+        'title'            => 'iPhone 15 Pro smartfoni 256GB',
+        'sellPrice'        => 15000000,
+        'fullPrice'        => 17000000,
+        'rating'           => 4.9,
+        'feedbackQuantity' => 120,
+        'ordersQuantity'   => 300,
+        'image'            => 'https://images.uzum.uz/x/original.jpg',
+        'category'         => ['title' => 'Telefonlar va gadjetlar'],
+    ]]]], JSON_UNESCAPED_UNICODE),
+    // Wildberries: GET search.wb.ru/exactmatch/.../search?query=... (prices in kopecks)
+    'search.wb.ru' => json_encode(['data' => ['products' => [[
+        'id'           => 555001,
+        'name'         => 'Смартфон Apple iPhone 15 128GB',
+        'sizes'        => [['price' => ['product' => 900000000, 'basic' => 950000000]]],
+        'reviewRating' => 4.8,
+        'feedbacks'    => 5200,
+        'supplier'     => 'Apple Store',
+    ]]]], JSON_UNESCAPED_UNICODE),
+    // OLX: GET www.olx.uz/api/v1/offers/?query=...
+    'olx.uz' => json_encode(['data' => [[
+        'id'          => 333001,
+        'title'       => 'iPhone 15 yangi holatda',
+        'description' => 'Ideal holat, dokumentlari bor',
+        'url'         => 'https://www.olx.uz/d/obyavlenie/iphone-15-ID333001.html',
+        'params'      => [['key' => 'price', 'value' => ['value' => 12000000, 'currency' => 'UZS']]],
+        'photos'      => [['link' => 'https://apollo.olxcdn.com/v1/files/abc/image;s={width}x{height}']],
+        'user'        => ['name' => 'Aziz'],
+    ], [
+        // priceless (barter) offer — must be skipped
+        'id'     => 333002,
+        'title'  => 'iPhone almashaman',
+        'params' => [],
+    ]]], JSON_UNESCAPED_UNICODE),
+];
+
+$liveManager = new ParserManager($fake);
+$liveManager->register(new UzumParser($fake));
+$liveManager->register(new WildberriesParser($fake));
+$liveManager->register(new OlxParser($fake));
+$liveManager->register(new OzonParser($fake)); // stub — must be ignored
+
+check('stubs report no live-search support', !(new OzonParser($fake))->supportsLiveSearch());
+check('all three drivers support live search',
+    (new UzumParser($fake))->supportsLiveSearch()
+    && (new WildberriesParser($fake))->supportsLiveSearch()
+    && (new OlxParser($fake))->supportsLiveSearch());
+
+$res = $liveManager->liveSearchCached('iPhone 15', 600, 10);
+check('live search fetched from 3 sources', $res['fetched'] === 3 && $res['upserted'] === 3 && !$res['cached'], json_encode($res));
+
+$r = $repo->search(['q' => 'iphone']);
+$sources = array_unique(array_column($r, 'source'));
+sort($sources);
+check('DB search returns live results from all 3 marketplaces',
+    count($r) === 3 && $sources === ['olx', 'uzum', 'wildberries'], json_encode($sources));
+
+$wb = array_values(array_filter($r, fn ($p) => $p['source'] === 'wildberries'))[0];
+check('WB kopecks -> RUB -> UZS conversion', abs($wb['price_uzs'] - 9000000.0 * 150) < 0.01, (string) $wb['price_uzs']);
+
+$olx = array_values(array_filter($r, fn ($p) => $p['source'] === 'olx'))[0];
+check('OLX photo size template resolved', str_contains((string) $olx['image_url'], '800x800'));
+check('OLX priceless offers skipped', !in_array('333002', array_column($r, 'external_id'), true));
+
+$uz = array_values(array_filter($r, fn ($p) => $p['source'] === 'uzum'))[0];
+check('Uzum search item mapped (price, old price, category)',
+    $uz['price'] === 15000000.0 && $uz['old_price'] === 17000000.0 && $uz['category_slug'] === 'elektronika',
+    json_encode([$uz['price'], $uz['old_price'], $uz['category_slug']]));
+
+// Cyrillic user query must find these live products too
+$r = $repo->search(['q' => 'айфон']);
+check('cyrillic "айфон" does not crash (transliteration)', is_array($r));
+$r = $repo->search(['q' => 'смартфон iphone']);
+check('cyrillic multiword finds live products', count($r) >= 2, count($r) . ' found');
+
+$res2 = $liveManager->liveSearchCached('iPhone 15', 600, 10);
+check('TTL cache prevents repeat marketplace calls', $res2['cached'] === true && $fake->multiCalls === 1, json_encode($res2));
+
+$res3 = $liveManager->liveSearchCached('iPhone 15', 0, 10);
+check('expired TTL refetches', $res3['cached'] === false && $fake->multiCalls === 2);
 
 echo $failures === 0 ? "\nALL TESTS PASSED\n" : "\n$failures TEST(S) FAILED\n";
 exit($failures === 0 ? 0 : 1);

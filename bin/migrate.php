@@ -125,6 +125,18 @@ if (!tableExists($pdo, 'login_attempts')) {
     echo "+ login_attempts\n";
 }
 
+// 3b. live_search_cache
+if (!tableExists($pdo, 'live_search_cache')) {
+    $pdo->exec(Database::isSqlite()
+        ? 'CREATE TABLE live_search_cache (query TEXT PRIMARY KEY, searched_at DATETIME NOT NULL)'
+        : 'CREATE TABLE live_search_cache (
+             `query` VARCHAR(191) NOT NULL,
+             searched_at DATETIME NOT NULL,
+             PRIMARY KEY (`query`)
+           ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci');
+    echo "+ live_search_cache\n";
+}
+
 // 4. Default rates
 if (Settings::get('rate_usd_uzs') === null) {
     Settings::set('rate_usd_uzs', '12900');

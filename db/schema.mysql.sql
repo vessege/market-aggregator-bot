@@ -2,6 +2,7 @@
 SET NAMES utf8mb4;
 SET FOREIGN_KEY_CHECKS = 0;
 
+DROP TABLE IF EXISTS `live_search_cache`;
 DROP TABLE IF EXISTS `login_attempts`;
 DROP TABLE IF EXISTS `broadcast_recipients`;
 DROP TABLE IF EXISTS `broadcasts`;
@@ -185,6 +186,13 @@ CREATE TABLE `login_attempts` (
   `attempted_at` DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
   PRIMARY KEY (`id`),
   KEY `idx_login_attempts_ip` (`ip`, `attempted_at`)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+-- Jonli qidiruv keshi (bir xil so'rov TTL ichida marketlarga qayta yuborilmaydi)
+CREATE TABLE `live_search_cache` (
+  `query` VARCHAR(191) NOT NULL,
+  `searched_at` DATETIME NOT NULL,
+  PRIMARY KEY (`query`)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- Sozlamalar (key-value)

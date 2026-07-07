@@ -44,6 +44,18 @@ final class WildberriesParser extends BaseParser
         $maxItems = max(1, (int) ($options['max_items'] ?? 30));
         $dest     = (int)    ($options['dest'] ?? -8144334);
 
+        $req = $this->searchRequest($query, $maxItems, $dest);
+        $resp = $this->http->get($req['url'], $req['headers']);
+        if (!$resp['ok']) {
+            Logger::error('parser-wb', 'search failed', ['status' => $resp['status']]);
+            return;
+        }
+        yield from $this->parseSearchResponse($resp['body'], $maxItems);
+    }
+
+    /** @return array{url:string, headers:array<string,string>} */
+    public function searchRequest(string $query, int $limit, int $dest = -8144334): array
+    {
         $url = self::SEARCH . '?' . http_build_query([
             'ab_testid'  => 'no_action',
             'appType'    => 1,
@@ -55,29 +67,36 @@ final class WildberriesParser extends BaseParser
             'spp'        => 30,
             'page'       => 1,
         ]);
+        return ['url' => $url, 'headers' => $this->defaultHeaders()];
+    }
 
-        $resp = $this->http->get($url, $this->defaultHeaders());
-        if (!$resp['ok']) {
-            Logger::error('parser-wb', 'search failed', ['status' => $resp['status']]);
-            return;
+    /** @return ParsedProduct[] */
+    public function parseSearchResponse(string $body, int $limit): array
+    {
+        $json = json_decode($body, true);
+        if (!is_array($json)) {
+            return [];
         }
-        $json = json_decode($resp['body'], true);
-        $products = $json['data']['products'] ?? [];
+        // v9 wraps products in data.products; newer versions serve them at root.
+        $products = $json['data']['products'] ?? $json['products'] ?? [];
         if (!is_array($products)) {
-            return;
+            return [];
         }
 
-        $count = 0;
+        $out = [];
         foreach ($products as $p) {
-            if ($count >= $maxItems) {
-                return;
+            if (count($out) >= $limit) {
+                break;
+            }
+            if (!is_array($p)) {
+                continue;
             }
             $product = $this->mapProduct($p);
             if ($product !== null) {
-                yield $product;
-                $count++;
+                $out[] = $product;
             }
         }
+        return $out;
     }
 
     public function fetchOne(string $externalId): ?ParsedProduct

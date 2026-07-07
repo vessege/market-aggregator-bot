@@ -16,12 +16,16 @@ bir joyga jamlaydi va eng yaxshi takliflarni ko'rsatadi.
 - **To'liq matnli qidiruv** — MySQL FULLTEXT / SQLite FTS5 + kirill↔lotin
   transliteratsiya ("телефон" ham, "telefon" ham topadi), prefiks qidiruv va
   relevantlik bo'yicha saralash
+- **Jonli qidiruv** — foydalanuvchi qidirganda Uzum, Wildberries va OLX'ga
+  parallel so'rov yuboriladi, topilgan mahsulotlar bazaga qo'shilib darhol
+  natijada ko'rinadi (bir xil so'rov 10 daqiqa TTL kesh bilan cheklanadi)
 - **Valyuta normalizatsiyasi** — RUB/USD narxlar UZSga konvertatsiya qilinadi
   (CBU kurslari, `bin/update-rates.php`), saralash/filtr so'mda ishlaydi
 - **Modul parserlar** — har bir market uchun alohida driver:
-  - ✅ **Uzum Market** (uzum.uz) — JSON API
-  - ✅ **Wildberries** — search.wb.ru va card.wb.ru JSON API
-  - 🔧 OLX, Ozon, Yandex Market, AliExpress — driver shabloni mavjud,
+  - ✅ **Uzum Market** (uzum.uz) — JSON API (detail + jonli qidiruv)
+  - ✅ **Wildberries** — search.wb.ru va card.wb.ru JSON API (jonli qidiruv)
+  - ✅ **OLX** (olx.uz) — ochiq JSON offers API (faqat query bo'yicha)
+  - 🔧 Ozon, Yandex Market, AliExpress — driver shabloni mavjud,
     to'liq implementatsiya kerak (har bir saytning anti-bot himoyasi turlicha)
 - **Majburiy obuna** — admin paneldan cheksiz miqdordagi kanallar qo'shiladi;
   bot foydalanuvchi obuna bo'lmaganida WebApp'ni ko'rsatmaydi

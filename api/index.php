@@ -5,6 +5,7 @@ use MarketBot\Core\Bootstrap;
 use MarketBot\Core\Database;
 use MarketBot\Core\Logger;
 use MarketBot\Parsers\HttpClient;
+use MarketBot\Parsers\OlxParser;
 use MarketBot\Parsers\ParserManager;
 use MarketBot\Parsers\UzumParser;
 use MarketBot\Parsers\WildberriesParser;
@@ -61,6 +62,21 @@ $path = (string) ($_GET['action'] ?? '');
 $users = new UserRepository();
 $products = new ProductRepository();
 
+/** All live-capable marketplace drivers, on a short-timeout HTTP client. */
+function build_parser_manager(array $config, int $timeout): ParserManager
+{
+    $http = new HttpClient(
+        userAgent: $config['parser']['user_agent'],
+        timeout:   $timeout,
+        delayMs:   0
+    );
+    $manager = new ParserManager($http);
+    $manager->register(new UzumParser($http));
+    $manager->register(new WildberriesParser($http));
+    $manager->register(new OlxParser($http));
+    return $manager;
+}
+
 $authUser = null;
 if ($config['telegram']['token'] !== '') {
     $verifier = new WebAppAuth($config['telegram']['token']);
@@ -80,6 +96,21 @@ if ($authUser) {
 try {
     switch ($path) {
         case 'products': {
+            // Live search: on a fresh query, fan out to the marketplaces in
+            // parallel, upsert what they return, then serve from the DB so
+            // ranking/filtering stay consistent. TTL cache keeps repeated
+            // queries (and keystroke prefixes) from hammering the markets.
+            $q = trim((string) ($_GET['q'] ?? ''));
+            $live = (($_GET['live'] ?? '') === '1');
+            if ($live && mb_strlen($q) >= 3) {
+                try {
+                    $manager = build_parser_manager($config, 6);
+                    $manager->liveSearchCached($q, 600, 10);
+                } catch (\Throwable $e) {
+                    Logger::error('api', 'live search failed', ['q' => $q, 'err' => $e->getMessage()]);
+                }
+            }
+
             $items = $products->search([
                 'q'         => $_GET['q']         ?? null,
                 'category'  => $_GET['category']  ?? null,
@@ -111,14 +142,7 @@ try {
             $stale = isset($p['updated_at']) && (time() - strtotime((string) $p['updated_at']) > 300);
             if ($stale && !empty($p['external_id'])) {
                 try {
-                    $http = new HttpClient(
-                        userAgent: $config['parser']['user_agent'],
-                        timeout:   $config['parser']['timeout'],
-                        delayMs:   0
-                    );
-                    $manager = new ParserManager($http);
-                    $manager->register(new UzumParser($http));
-                    $manager->register(new WildberriesParser($http));
+                    $manager = build_parser_manager($config, $config['parser']['timeout']);
                     if (array_key_exists((string) $p['source'], $manager->all())) {
                         // Touch first so parallel requests for the same stale
                         // product don't stampede the marketplace API.
@@ -157,10 +181,7 @@ try {
         }
 
         case 'sources': {
-            $http = new HttpClient(userAgent: $config['parser']['user_agent']);
-            $manager = new ParserManager($http);
-            $manager->register(new UzumParser($http));
-            $manager->register(new WildberriesParser($http));
+            $manager = build_parser_manager($config, $config['parser']['timeout']);
             $list = [];
             foreach ($manager->all() as $src => $parser) {
                 $list[] = ['source' => $src, 'name' => $parser->displayName()];
