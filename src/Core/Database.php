@@ -117,6 +117,12 @@ final class Database
                 $inBacktick = !$inBacktick;
             }
             if ($ch === ';' && !$inSingle && !$inDouble && !$inBacktick) {
+                // Trigger bodies (BEGIN ... END;) contain semicolons — keep
+                // buffering until the closing END is reached.
+                if (self::isUnterminatedTrigger($buffer)) {
+                    $buffer .= $ch;
+                    continue;
+                }
                 $statements[] = $buffer;
                 $buffer = '';
                 continue;
@@ -127,5 +133,13 @@ final class Database
             $statements[] = $buffer;
         }
         return $statements;
+    }
+
+    private static function isUnterminatedTrigger(string $buffer): bool
+    {
+        if (!preg_match('/create\s+trigger/i', $buffer)) {
+            return false;
+        }
+        return !preg_match('/\bend\s*$/i', rtrim($buffer));
     }
 }

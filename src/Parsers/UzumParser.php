@@ -83,6 +83,104 @@ final class UzumParser extends BaseParser
         }
     }
 
+    /** @return array{url:string, headers:array<string,string>} */
+    public function searchRequest(string $query, int $limit): array
+    {
+        // REST search inherited from the KazanExpress-era API. If Uzum moves
+        // it, parseSearchResponse degrades to an empty list and only the DB
+        // catalog is served.
+        $url = self::BASE . '/api/v2/main/search/product?' . http_build_query([
+            'query'  => $query,
+            'size'   => max(1, min(50, $limit)),
+            'page'   => 0,
+            'sortBy' => 'orders',
+            'order'  => 'descending',
+        ]);
+        return ['url' => $url, 'headers' => $this->defaultHeaders()];
+    }
+
+    /** @return ParsedProduct[] */
+    public function parseSearchResponse(string $body, int $limit): array
+    {
+        $json = json_decode($body, true);
+        if (!is_array($json)) {
+            return [];
+        }
+        $items = $json['payload']['products']
+            ?? $json['payload']['data']['products']
+            ?? [];
+        if (!is_array($items)) {
+            return [];
+        }
+
+        $out = [];
+        foreach ($items as $item) {
+            if (count($out) >= $limit) {
+                break;
+            }
+            if (!is_array($item)) {
+                continue;
+            }
+            $product = $this->mapSearchItem($item);
+            if ($product !== null) {
+                $out[] = $product;
+            }
+        }
+        return $out;
+    }
+
+    /**
+     * Search list items are flatter than the product-detail payload, so they
+     * get their own defensive mapper (field names differ slightly between
+     * API revisions).
+     *
+     * @param array<string,mixed> $item
+     */
+    private function mapSearchItem(array $item): ?ParsedProduct
+    {
+        $id = (string) ($item['productId'] ?? $item['id'] ?? '');
+        $title = (string) ($item['title'] ?? $item['name'] ?? '');
+        if ($id === '' || $title === '') {
+            return null;
+        }
+
+        $price = (float) ($item['sellPrice'] ?? $item['minSellPrice'] ?? $item['purchasePrice'] ?? 0);
+        $full  = (float) ($item['fullPrice'] ?? $item['minFullPrice'] ?? 0);
+        if ($price <= 0) {
+            return null;
+        }
+
+        $image = null;
+        if (is_string($item['image'] ?? null) && $item['image'] !== '') {
+            $image = $item['image'];
+        } elseif (is_array($item['photos'] ?? null)) {
+            foreach ($item['photos'] as $photo) {
+                $hi = $photo['photo']['540']['high'] ?? $photo['photo']['480']['high'] ?? null;
+                if (is_string($hi) && $hi !== '') {
+                    $image = $hi;
+                    break;
+                }
+            }
+        }
+
+        return new ParsedProduct(
+            source:       'uzum',
+            externalId:   $id,
+            title:        $title,
+            price:        $price,
+            currency:     'UZS',
+            oldPrice:     $full > $price ? $full : null,
+            description:  null,
+            imageUrl:     $image,
+            images:       $image !== null ? [$image] : [],
+            externalUrl:  sprintf(self::PRODUCT_URL_TEMPLATE, $id),
+            categorySlug: $this->guessCategorySlug($item),
+            rating:       isset($item['rating']) ? (float) $item['rating'] : null,
+            reviewsCount: (int) ($item['feedbackQuantity'] ?? $item['reviewsAmount'] ?? 0),
+            soldCount:    (int) ($item['ordersQuantity'] ?? $item['ordersAmount'] ?? 0),
+        );
+    }
+
     public function fetchOne(string $externalId): ?ParsedProduct
     {
         $url = self::BASE . '/api/v2/product/' . urlencode($externalId);

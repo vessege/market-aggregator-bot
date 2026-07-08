@@ -1,6 +1,9 @@
 -- Market Aggregator Bot — SQLite schema (development / fallback)
 PRAGMA foreign_keys = ON;
 
+DROP TABLE IF EXISTS live_search_cache;
+DROP TABLE IF EXISTS login_attempts;
+DROP TABLE IF EXISTS products_fts;
 DROP TABLE IF EXISTS broadcast_recipients;
 DROP TABLE IF EXISTS broadcasts;
 DROP TABLE IF EXISTS subscription_channels;
@@ -54,11 +57,13 @@ CREATE TABLE products (
   category_id    INTEGER,
   title          TEXT NOT NULL,
   description    TEXT,
+  search_text    TEXT,
   image_url      TEXT,
   images_json    TEXT,
   price          REAL NOT NULL DEFAULT 0,
   old_price      REAL,
   currency       TEXT NOT NULL DEFAULT 'UZS',
+  price_uzs      REAL,
   rating         REAL,
   reviews_count  INTEGER NOT NULL DEFAULT 0,
   sold_count     INTEGER NOT NULL DEFAULT 0,
@@ -71,7 +76,25 @@ CREATE TABLE products (
 );
 CREATE INDEX idx_products_category ON products(category_id);
 CREATE INDEX idx_products_active_price ON products(is_active, price);
+CREATE INDEX idx_products_active_price_uzs ON products(is_active, price_uzs);
 CREATE INDEX idx_products_rating ON products(rating);
+
+-- FTS5 to'liq matnli qidiruv (products.search_text bilan sinxron triggerlar orqali)
+CREATE VIRTUAL TABLE products_fts USING fts5(
+  search_text,
+  content='products',
+  content_rowid='id'
+);
+CREATE TRIGGER products_fts_ai AFTER INSERT ON products BEGIN
+  INSERT INTO products_fts(rowid, search_text) VALUES (new.id, new.search_text);
+END;
+CREATE TRIGGER products_fts_ad AFTER DELETE ON products BEGIN
+  INSERT INTO products_fts(products_fts, rowid, search_text) VALUES ('delete', old.id, old.search_text);
+END;
+CREATE TRIGGER products_fts_au AFTER UPDATE ON products BEGIN
+  INSERT INTO products_fts(products_fts, rowid, search_text) VALUES ('delete', old.id, old.search_text);
+  INSERT INTO products_fts(rowid, search_text) VALUES (new.id, new.search_text);
+END;
 
 CREATE TABLE favorites (
   id         INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -145,6 +168,19 @@ CREATE TABLE parser_runs (
 );
 CREATE INDEX idx_parser_runs_source ON parser_runs(source);
 
+CREATE TABLE login_attempts (
+  id           INTEGER PRIMARY KEY AUTOINCREMENT,
+  ip           TEXT NOT NULL,
+  username     TEXT,
+  attempted_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX idx_login_attempts_ip ON login_attempts(ip, attempted_at);
+
+CREATE TABLE live_search_cache (
+  query       TEXT PRIMARY KEY,
+  searched_at DATETIME NOT NULL
+);
+
 CREATE TABLE settings (
   key        TEXT PRIMARY KEY,
   value      TEXT,
@@ -161,3 +197,8 @@ INSERT INTO categories (slug, name, icon, position) VALUES
   ('oziq-ovqat',  'Oziq-ovqat', '🛒', 7),
   ('kitoblar',    'Kitoblar', '📚', 8),
   ('avtomobil',   'Avto', '🚗', 9);
+
+-- Boshlang'ich valyuta kurslari (taxminiy; cron orqali yangilang: php bin/update-rates.php)
+INSERT INTO settings (key, value) VALUES
+  ('rate_usd_uzs', '12900'),
+  ('rate_rub_uzs', '150');

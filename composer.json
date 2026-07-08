@@ -21,6 +21,7 @@
     },
     "scripts": {
         "lint": "find src -name '*.php' -print0 | xargs -0 -n1 php -l",
-        "setup": "php bin/setup.php"
+        "setup": "php bin/setup.php",
+        "test": "php tests/run.php"
     }
 }
