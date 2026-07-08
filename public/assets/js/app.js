@@ -42,6 +42,13 @@
 
   /** ---------- State ---------- */
   const PAGE_SIZE = 30;
+  const SORTS = [
+    { key: 'popular',    name: 'Ommabop' },
+    { key: 'price_asc',  name: 'Arzon → qimmat' },
+    { key: 'price_desc', name: 'Qimmat → arzon' },
+    { key: 'rating',     name: 'Reyting' },
+    { key: 'newest',     name: 'Yangi' },
+  ];
   const state = {
     products: [],
     categories: [],
@@ -50,10 +57,25 @@
     favIdSet: new Set(),
     sources: [],
     me: null,
+    authed: false,
     searchQuery: '',
+    sort: 'popular',
+    source: null,
     offset: 0,
     hasMore: false,
+    loading: false,
+    sheetProduct: null,
   };
+
+  /** ---------- Local favorites (works without any login) ---------- */
+  const LS_FAV = 'mab_favorites';
+  function lsFavs() {
+    try { return JSON.parse(localStorage.getItem(LS_FAV)) || {}; }
+    catch (e) { return {}; }
+  }
+  function lsSaveFavs(map) {
+    try { localStorage.setItem(LS_FAV, JSON.stringify(map)); } catch (e) { /* quota */ }
+  }
 
   const $ = (sel) => document.querySelector(sel);
   const $$ = (sel) => Array.from(document.querySelectorAll(sel));
@@ -137,11 +159,16 @@
     const fav = p.is_favorite || state.favIdSet.has(Number(p.id));
     const synced = p.synced_at_human ? `Yangilangan: ${escapeHTML(p.synced_at_human)}` : '';
     const img = (p.images && p.images[0]) || p.image_url || '';
+    const ratingBits = [];
+    if (p.rating) ratingBits.push(`<span style="color:var(--yellow)">★</span> ${Number(p.rating).toFixed(1)}`);
+    if (p.reviews_count) ratingBits.push(`${p.reviews_count} sharh`);
+    if (p.sold_count) ratingBits.push(`${fmtNum(p.sold_count)}+ sotilgan`);
     return `
       <article class="card" data-id="${p.id}">
-        <div class="card__image-wrap">
+        <div class="card__image-wrap ${img ? '' : 'is-broken'}">
           ${img ? `<img class="card__image" loading="lazy" src="${escapeHTML(img)}" alt="">` : ''}
-          <span class="card__source-badge">${escapeHTML(p.source)}</span>
+          <span class="card__source-badge" data-source="${escapeHTML(p.source)}">${escapeHTML(p.source)}</span>
+          ${discount ? `<span class="card__discount">−${discount}%</span>` : ''}
           <button class="card__fav ${fav ? 'is-active' : ''}" data-action="fav" data-id="${p.id}" aria-label="Sevimli">
             <svg viewBox="0 0 24 24" fill="${fav ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2"><path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 1 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"/></svg>
           </button>
@@ -152,7 +179,7 @@
             <span class="card__price">${priceHTML(p, p.price)}</span>
             ${p.old_price ? `<span class="card__old-price">${escapeHTML(priceText(p, p.old_price).replace(/ so'm$/, ''))}</span>` : ''}
           </div>
-          <div class="card__rating">${p.rating ? Number(p.rating).toFixed(1) : '—'} · ${p.reviews_count || 0} sharh</div>
+          <div class="card__rating">${ratingBits.join(' · ')}</div>
           <div class="card__synced">${synced}</div>
         </div>
       </article>
@@ -178,35 +205,101 @@
         toggleFavorite(Number(btn.dataset.id), btn);
       });
     });
+    // Broken image URLs (WB CDN sharding is a guess) fall back to a placeholder.
+    grid.querySelectorAll('.card__image').forEach(imgEl => {
+      imgEl.addEventListener('error', () => {
+        const wrap = imgEl.closest('.card__image-wrap');
+        if (wrap) wrap.classList.add('is-broken');
+        imgEl.remove();
+      }, { once: true });
+    });
+  }
+
+  function renderSkeletons(target = '#products-grid', n = 6) {
+    const grid = $(target);
+    if (!grid) return;
+    grid.innerHTML = Array.from({ length: n }, () => `
+      <div class="skeleton-card">
+        <div class="skeleton skeleton-card__img"></div>
+        <div class="skeleton skeleton-card__line"></div>
+        <div class="skeleton skeleton-card__line" style="width:55%"></div>
+      </div>
+    `).join('');
+  }
+
+  function renderFilters() {
+    const node = $('#filters');
+    if (!node) return;
+    const sortChips = SORTS.map(s => `
+      <button class="filter-chip ${state.sort === s.key ? 'is-active' : ''}" data-sort="${s.key}">${escapeHTML(s.name)}</button>
+    `).join('');
+    const sourceChips = state.sources.length ? `
+      <span class="filters__divider"></span>
+      <button class="filter-chip ${state.source === null ? 'is-active' : ''}" data-source-filter="">Barcha marketlar</button>
+      ${state.sources.map(s => `
+        <button class="filter-chip ${state.source === s.source ? 'is-active' : ''}" data-source-filter="${escapeHTML(s.source)}">${escapeHTML(s.name)}</button>
+      `).join('')}
+    ` : '';
+    node.innerHTML = sortChips + sourceChips;
+
+    node.querySelectorAll('[data-sort]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.sort = btn.dataset.sort;
+        renderFilters();
+        loadProducts();
+      });
+    });
+    node.querySelectorAll('[data-source-filter]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        state.source = btn.dataset.sourceFilter || null;
+        renderFilters();
+        loadProducts();
+      });
+    });
   }
 
   /** ---------- API actions ---------- */
   let productsAbort = null;
+
+  function productParams(extra = {}) {
+    const params = { limit: PAGE_SIZE, offset: state.offset, ...extra };
+    if (state.activeCategory) params.category = state.activeCategory;
+    if (state.searchQuery)    params.q = state.searchQuery;
+    if (state.sort !== 'popular') params.sort = state.sort;
+    if (state.source)         params.source = state.source;
+    return params;
+  }
+
+  function applyProducts(items, append) {
+    state.hasMore = items.length === PAGE_SIZE;
+    state.products = append ? state.products.concat(items) : items;
+    state.products.forEach(p => {
+      if (p.is_favorite) state.favIdSet.add(Number(p.id));
+    });
+    renderProducts(state.products);
+    updateLoadMore();
+  }
 
   async function loadProducts(append = false) {
     if (!append) state.offset = 0;
     if (productsAbort) productsAbort.abort();
     productsAbort = new AbortController();
     const signal = productsAbort.signal;
+    state.loading = true;
 
     const loader = $('#loader');
-    if (loader) loader.hidden = false;
+    if (append && loader) loader.hidden = false;
+    if (!append) renderSkeletons();
     try {
-      const params = { limit: PAGE_SIZE, offset: state.offset };
-      if (state.activeCategory) params.category = state.activeCategory;
-      if (state.searchQuery) {
-        params.q = state.searchQuery;
-        // Live marketplace fan-out on real queries (first page only);
-        // the server TTL-caches identical queries.
-        if (!append && state.searchQuery.length >= 3) params.live = 1;
+      // Phase 1: instant results from our DB.
+      const res = await api('products', { params: productParams(), signal });
+      applyProducts(res.products || [], append);
+
+      // Phase 2: live marketplace fan-out in the background (fresh queries
+      // only; the server TTL-caches identical queries).
+      if (!append && state.searchQuery.length >= 3) {
+        refreshLive(state.searchQuery, signal);
       }
-      const res = await api('products', { params, signal });
-      const items = res.products || [];
-      state.hasMore = items.length === PAGE_SIZE;
-      state.products = append ? state.products.concat(items) : items;
-      state.products.forEach(p => { if (p.is_favorite) state.favIdSet.add(Number(p.id)); });
-      renderProducts(state.products);
-      updateLoadMore();
     } catch (e) {
       if (e.name === 'AbortError') return; // superseded by a newer request
       console.warn('loadProducts failed', e);
@@ -214,7 +307,22 @@
       state.hasMore = false;
       updateLoadMore();
     } finally {
+      state.loading = false;
       if (loader && !signal.aborted) loader.hidden = true;
+    }
+  }
+
+  async function refreshLive(q, signal) {
+    const status = $('#live-status');
+    if (status) status.hidden = false;
+    try {
+      const res = await api('products', { params: productParams({ offset: 0, live: 1 }), signal });
+      if (state.searchQuery !== q) return; // user typed something else meanwhile
+      applyProducts(res.products || [], false);
+    } catch (e) {
+      if (e.name !== 'AbortError') console.warn('live search failed', e);
+    } finally {
+      if (status && !signal.aborted) status.hidden = true;
     }
   }
 
@@ -232,6 +340,16 @@
   }
 
   async function loadFavorites() {
+    if (!state.authed) {
+      // Local favorites: full product snapshots live in localStorage.
+      state.favorites = Object.values(lsFavs());
+      state.favIdSet = new Set(state.favorites.map(p => Number(p.id)));
+      state.favorites.forEach(p => { p.is_favorite = true; });
+      renderProducts(state.favorites, '#favorites-grid', '#favorites-empty');
+      const stat = $('#stat-favorites');
+      if (stat) stat.textContent = state.favorites.length;
+      return;
+    }
     try {
       const res = await api('favorites');
       state.favorites = res.products || [];
@@ -250,11 +368,17 @@
     try {
       const res = await api('me');
       state.me = res.user;
-      const name = state.me ? [state.me.first_name, state.me.last_name].filter(Boolean).join(' ') : 'Mehmon';
-      $('#profile-name').textContent = name || 'Foydalanuvchi';
-      $('#profile-id').textContent = state.me ? `ID: ${state.me.id}` : '';
-      $('#profile-avatar').textContent = (name || '?').slice(0, 1).toUpperCase();
+      state.authed = !!res.db_user_id;
     } catch (e) { console.warn('loadMe failed', e); }
+    const name = state.me ? [state.me.first_name, state.me.last_name].filter(Boolean).join(' ') : 'Mehmon';
+    $('#profile-name').textContent = name || 'Mehmon';
+    $('#profile-id').textContent = state.me ? `ID: ${state.me.id}` : 'Sevimlilar shu qurilmada saqlanadi';
+    $('#profile-avatar').textContent = (name || '?').slice(0, 1).toUpperCase();
+    if (!state.authed) {
+      state.favIdSet = new Set(Object.keys(lsFavs()).map(Number));
+      const stat = $('#stat-favorites');
+      if (stat) stat.textContent = state.favIdSet.size;
+    }
   }
 
   async function loadSources() {
@@ -266,19 +390,46 @@
     } catch (e) { /* ignore */ }
   }
 
+  function reflectFavorite(productId, favorited, btnEl) {
+    if (favorited) state.favIdSet.add(productId); else state.favIdSet.delete(productId);
+    if (btnEl) btnEl.classList.toggle('is-active', favorited);
+    $$('.card[data-id="' + productId + '"] .card__fav').forEach(b => b.classList.toggle('is-active', favorited));
+    const sheetFav = $('#sheet-fav');
+    if (sheetFav && Number(sheetFav.dataset.id) === productId) {
+      sheetFav.classList.toggle('is-active', favorited);
+    }
+    const stat = $('#stat-favorites');
+    if (stat) stat.textContent = state.favIdSet.size;
+  }
+
+  function findProduct(productId) {
+    return state.products.find(p => Number(p.id) === productId)
+        || state.favorites.find(p => Number(p.id) === productId)
+        || (state.sheetProduct && Number(state.sheetProduct.id) === productId ? state.sheetProduct : null);
+  }
+
   async function toggleFavorite(productId, btnEl) {
+    if (!state.authed) {
+      const favs = lsFavs();
+      const key = String(productId);
+      let favorited;
+      if (favs[key]) {
+        delete favs[key];
+        favorited = false;
+      } else {
+        const p = findProduct(productId);
+        if (!p) return;
+        favs[key] = { ...p, is_favorite: true };
+        favorited = true;
+      }
+      lsSaveFavs(favs);
+      reflectFavorite(productId, favorited, btnEl);
+      return;
+    }
     try {
       const res = await api('toggle_favorite', { method: 'POST', body: { product_id: productId } });
-      const favorited = !!res.favorited;
-      if (favorited) state.favIdSet.add(productId); else state.favIdSet.delete(productId);
-      if (btnEl) btnEl.classList.toggle('is-active', favorited);
-      $$('.card[data-id="' + productId + '"] .card__fav').forEach(b => b.classList.toggle('is-active', favorited));
-      const sheetFav = $('#sheet-fav');
-      if (sheetFav && Number(sheetFav.dataset.id) === productId) {
-        sheetFav.classList.toggle('is-active', favorited);
-      }
+      reflectFavorite(productId, !!res.favorited, btnEl);
     } catch (e) {
-      if (tg && tg.showAlert) tg.showAlert('Avval botda /start ni bosing va qayta urunib ko\'ring.');
       console.warn('toggle_favorite failed', e);
     }
   }
@@ -299,6 +450,7 @@
     try {
       const res = await api('product', { params: { id } });
       const p = res.product;
+      state.sheetProduct = p;
       $('#sheet-title').textContent = p.title;
       $('#sheet-price').innerHTML = priceHTML(p, p.price);
       const oldEl = $('#sheet-old-price');
@@ -318,8 +470,11 @@
         .map(src => `<img loading="lazy" src="${escapeHTML(src)}" alt="">`)
         .join('');
 
-      $('#sheet-rating').innerHTML = (p.rating ? `★ ${Number(p.rating).toFixed(1)}` : '★ —')
-        + ` · ${p.reviews_count || 0} sharh · ${p.sold_count || 0} marta sotib olingan`;
+      const ratingBits = [];
+      if (p.rating)        ratingBits.push(`★ ${Number(p.rating).toFixed(1)}`);
+      if (p.reviews_count) ratingBits.push(`${p.reviews_count} sharh`);
+      if (p.sold_count)    ratingBits.push(`${fmtNum(p.sold_count)} marta sotib olingan`);
+      $('#sheet-rating').textContent = ratingBits.join(' · ');
 
       const origNote = originalPriceNote(p);
       $('#sheet-meta').innerHTML = `
@@ -339,11 +494,13 @@
 
       const fav = $('#sheet-fav');
       fav.dataset.id = id;
-      fav.classList.toggle('is-active', !!p.is_favorite);
+      fav.classList.toggle('is-active', !!p.is_favorite || state.favIdSet.has(Number(id)));
       fav.onclick = () => toggleFavorite(id, fav);
 
       const cta = $('#cta-buy');
-      cta.textContent = `${p.source[0].toUpperCase() + p.source.slice(1)}da sotib olish`;
+      const srcName = (state.sources.find(s => s.source === p.source) || {}).name
+        || (p.source[0].toUpperCase() + p.source.slice(1));
+      cta.textContent = `${srcName}da sotib olish`;
       cta.onclick = () => {
         if (p.external_url) {
           if (tg && tg.openLink) tg.openLink(p.external_url);
@@ -391,15 +548,55 @@
         state.offset += PAGE_SIZE;
         loadProducts(true);
       });
+      // Infinite scroll: auto-load the next page as the button scrolls
+      // into view (the button stays as a manual fallback).
+      if ('IntersectionObserver' in window) {
+        new IntersectionObserver(entries => {
+          entries.forEach(en => {
+            if (en.isIntersecting && state.hasMore && !state.loading) {
+              state.offset += PAGE_SIZE;
+              loadProducts(true);
+            }
+          });
+        }, { rootMargin: '400px' }).observe(loadMoreBtn);
+      }
     }
+
+    $$('.banner[data-action]').forEach(b => {
+      b.addEventListener('click', () => {
+        const action = b.dataset.action;
+        if (action === 'search') {
+          $('#search-input').focus();
+        } else if (action === 'top') {
+          state.sort = 'rating';
+          renderFilters();
+          loadProducts();
+          $('#products-grid').scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } else if (action === 'favorites') {
+          goPage('favorites');
+        }
+      });
+    });
+
+    $$('.menu__item[data-action="about"]').forEach(el => {
+      el.addEventListener('click', () => {
+        alert(
+          'Market Aggregator\n\n' +
+          "Uzum, Wildberries va OLX'dagi mahsulotlarni bir joyga jamlaydi, " +
+          "narxlarni so'mda solishtiradi va jonli qidiradi.\n\n" +
+          'Buyurtma qabul qilinmaydi — "Sotib olish" tugmasi sizni marketning o\'z sahifasiga olib o\'tadi.'
+        );
+      });
+    });
   }
 
   async function init() {
     bind();
+    await loadMe();          // determines auth mode before favorites render
     await loadCategories();
+    renderFilters();
     await loadProducts();
-    await loadMe();
-    await loadSources();
+    loadSources().then(renderFilters);
   }
 
   document.addEventListener('DOMContentLoaded', init);
